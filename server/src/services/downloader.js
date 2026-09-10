@@ -13,11 +13,12 @@ async function getVideoInfo(url) {
             dumpSingleJson: true,
             noWarnings: true,
             ffmpegLocation: FFMPEG_PATH || undefined,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            userAgent: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
             httpHeaders: {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.youtube.com/'
-            }
+            },
+            extractorArgs: ['youtube:player-client=ios']
         });
         console.log(`[Downloader] Info fetched: ${output.title}`);
         return {
@@ -53,11 +54,12 @@ async function downloadVideo(url, onProgress, quality = 'best') {
             mergeOutputFormat: 'mp4',
             noWarnings: true,
             ffmpegLocation: FFMPEG_PATH || undefined,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            userAgent: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
             httpHeaders: {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.youtube.com/'
             },
+            extractorArgs: ['youtube:player-client=ios'],
             socketTimeout: 30
         });
 
