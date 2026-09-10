@@ -1,13 +1,11 @@
 import axios from 'axios';
 
-// In development: connect to localhost:3000
-// In production: connect to same host on port 3000 (or Railway URL)
 const getBaseURL = () => {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://localhost:3000/api';
     }
-    // Production: same host, or use env var if set
-    return `${window.location.protocol}//${window.location.hostname}:3000/api`;
+    // Production: same host, same port (no :3000)
+    return `${window.location.protocol}//${window.location.hostname}/api`;
 };
 
 const api = axios.create({
@@ -24,10 +22,6 @@ export const processVideo = async (url, duration, crop, outputDir, shortsOnly, q
     return response.data;
 };
 
-/**
- * Download video file from server for client-side processing
- * Server only downloads — processing happens in the browser!
- */
 export const downloadVideoFile = async (url, quality, onProgress) => {
     const response = await api.post('/download', { url, quality }, {
         responseType: 'blob',
@@ -37,7 +31,7 @@ export const downloadVideoFile = async (url, quality, onProgress) => {
                 onProgress(percent);
             }
         },
-        timeout: 600000, // 10 minutes timeout
+        timeout: 600000,
     });
     return response.data;
 };
