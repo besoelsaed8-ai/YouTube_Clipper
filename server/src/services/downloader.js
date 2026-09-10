@@ -9,8 +9,6 @@ const FFMPEG_PATH = process.env.FFMPEG_PATH || '';
 
 /**
  * Get video metadata
- * @param {string} url 
- * @returns {Promise<object>}
  */
 async function getVideoInfo(url) {
     console.log(`[Downloader] Fetching info for: ${url}`);
@@ -23,8 +21,7 @@ async function getVideoInfo(url) {
             httpHeaders: {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.youtube.com/'
-            },
-            extractorArgs: ['youtube:player-client=web']
+            }
         });
         console.log(`[Downloader] Info fetched: ${output.title}`);
         return {
@@ -41,16 +38,12 @@ async function getVideoInfo(url) {
 
 /**
  * Download video with progress tracking
- * @param {string} url 
- * @param {function} onProgress callback for progress updates (0-100)
- * @returns {Promise<string>} path to downloaded file
  */
 async function downloadVideo(url, onProgress, quality = 'best') {
     const id = uuidv4();
     const outputPath = path.join(TEMP_DIR, `${id}.mp4`);
     console.log(`[Downloader] Starting download: ${url} -> ${outputPath} (quality: ${quality})`);
 
-    // Quality presets
     const formatMap = {
         'best': 'bestvideo+bestaudio/best',
         '2160': 'bestvideo[height<=2160]+bestaudio/best[height<=2160]/best',
@@ -61,7 +54,7 @@ async function downloadVideo(url, onProgress, quality = 'best') {
     const format = formatMap[quality] || formatMap['best'];
 
     return new Promise((resolve, reject) => {
-        const process = ytDlp.exec(url, {
+        const proc = ytDlp.exec(url, {
             output: outputPath,
             format: format,
             mergeOutputFormat: 'mp4',
@@ -72,24 +65,22 @@ async function downloadVideo(url, onProgress, quality = 'best') {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.youtube.com/'
             },
-            extractorArgs: ['youtube:player-client=web'],
             socketTimeout: 30
         });
 
-        process.stdout.on('data', (data) => {
+        proc.stdout.on('data', (data) => {
             const line = data.toString();
             const match = line.match(/\[download\]\s+(\d+\.?\d*)%/);
             if (match && onProgress) {
-                const percent = parseFloat(match[1]);
-                onProgress(percent);
+                onProgress(parseFloat(match[1]));
             }
         });
 
-        process.stderr.on('data', (data) => {
+        proc.stderr.on('data', (data) => {
             console.error(`[Downloader Error] ${data.toString()}`);
         });
 
-        process.on('close', async (code) => {
+        proc.on('close', async (code) => {
             if (code === 0) {
                 if (await fs.exists(outputPath)) {
                     console.log(`[Downloader] Download completed: ${outputPath}`);
@@ -98,9 +89,7 @@ async function downloadVideo(url, onProgress, quality = 'best') {
                     const files = await fs.readdir(TEMP_DIR);
                     const actualFile = files.find(f => f.startsWith(id) && !f.endsWith('.part'));
                     if (actualFile) {
-                        const actualPath = path.join(TEMP_DIR, actualFile);
-                        console.log(`[Downloader] Found file with different name/extension: ${actualPath}`);
-                        resolve(actualPath);
+                        resolve(path.join(TEMP_DIR, actualFile));
                     } else {
                         reject(new Error(`Downloaded file not found for ID: ${id}`));
                     }
