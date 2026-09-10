@@ -1,8 +1,0 @@
-# Robots.txt - YouTube Clipper
-# Allow all crawlers
-
-User-agent: *
-Allow: /
-
-# Sitemap
-Sitemap: https://your-domain.com/sitemap.xml
