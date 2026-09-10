@@ -11,10 +11,10 @@ const jobs = {};
 
 router.post('/info', async (req, res) => {
     try {
-        const { url } = req.body;
+        const { url, cookies } = req.body;
         if (!url) return res.status(400).json({ error: 'URL is required' });
 
-        const info = await getVideoInfo(url);
+        const info = await getVideoInfo(url, cookies);
         res.json(info);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -23,7 +23,7 @@ router.post('/info', async (req, res) => {
 
 router.post('/process', async (req, res) => {
     try {
-        const { url, duration, crop, outputDir, shortsOnly, quality } = req.body;
+        const { url, duration, crop, outputDir, shortsOnly, quality, cookies } = req.body;
         if (!url) return res.status(400).json({ error: 'URL is required' });
 
         const jobId = uuidv4();
@@ -37,7 +37,7 @@ router.post('/process', async (req, res) => {
 
                 const videoPath = await downloadVideo(url, (percent) => {
                     jobs[jobId].progress = Math.floor(10 + (percent * 0.3));
-                }, quality);
+                }, quality, cookies);
 
                 jobs[jobId].status = 'processing';
                 jobs[jobId].progress = 40;
@@ -74,17 +74,15 @@ router.get('/status/:id', (req, res) => {
 
 /**
  * Download-only endpoint: returns the video file for client-side processing.
- * Server only handles downloading via yt-dlp.
- * All CPU-heavy work (split, crop) happens in the browser with ffmpeg.wasm.
  */
 router.post('/download', async (req, res) => {
     try {
-        const { url, quality } = req.body;
+        const { url, quality, cookies } = req.body;
         if (!url) return res.status(400).json({ error: 'URL is required' });
 
         console.log(`[API] Download request: ${url} (quality: ${quality || 'best'})`);
 
-        const videoPath = await downloadVideo(url, null, quality || 'best');
+        const videoPath = await downloadVideo(url, null, quality || 'best', cookies);
 
         res.sendFile(videoPath, async (err) => {
             await fs.remove(videoPath).catch(console.error);
