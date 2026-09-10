@@ -17,7 +17,7 @@ RUN pip3 install --break-system-packages yt-dlp
 # Server
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 COPY server/ ./
 
 # Copy built frontend into output directory for static serving
