@@ -1,19 +1,9 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { v4: uuidv4 } = require('uuid');
-const axios = require('axios');
+const { execSync } = require('child_process');
 
 const TEMP_DIR = path.join(__dirname, '../../temp');
-
-// Free Invidious instances (rotate if one fails)
-const INVIDIOUS_INSTANCES = [
-    'https://inv.nadeko.net',
-    'https://invidious.nerdvpn.de',
-    'https://invidious.protokolla.fi',
-    'https://vid.puffyan.us',
-    'https://yewtu.be',
-    'https://invidious.fdn.fr',
-];
 
 /**
  * Extract YouTube video ID from URL
@@ -31,44 +21,9 @@ function extractVideoId(url) {
 }
 
 /**
- * Get video info from Invidious API
+ * Get video metadata using yt-dlp
  */
-async function getVideoInfoFromInvidious(videoId) {
-    for (const instance of INVIDIOUS_INSTANCES) {
-        try {
-            console.log(`[Downloader] Trying Invidious instance: ${instance}`);
-            const response = await axios.get(`${instance}/api/v1/videos/${videoId}`, {
-                timeout: 10000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-            
-            const data = response.data;
-            if (data && data.title) {
-                console.log(`[Downloader] Success with ${instance}: ${data.title}`);
-                return {
-                    title: data.title,
-                    thumbnail: data.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-                    duration: data.lengthSeconds || 0,
-                    id: videoId,
-                    instance: instance,
-                    formats: data.formatStreams || [],
-                    adaptiveFormats: data.adaptiveFormats || []
-                };
-            }
-        } catch (error) {
-            console.log(`[Downloader] Failed with ${instance}: ${error.message}`);
-            continue;
-        }
-    }
-    return null;
-}
-
-/**
- * Get video metadata - tries Invidious first
- */
-async function getVideoInfo(url) {
+async function getVideoInfo(url, cookies = null) {
     console.log(`[Downloader] Fetching info for: ${url}`);
     
     const videoId = extractVideoId(url);
@@ -76,106 +31,50 @@ async function getVideoInfo(url) {
         throw new Error('Invalid YouTube URL');
     }
     
-    // Try Invidious API
-    const invidiousInfo = await getVideoInfoFromInvidious(videoId);
-    if (invidiousInfo) {
-        return invidiousInfo;
-    }
-    
-    throw new Error('All Invidious instances failed. Please try again later or upload the video directly.');
-}
-
-/**
- * Download video from Invidious instance
- */
-async function downloadFromInvidious(videoId, instance, quality, outputPath, onProgress) {
-    // Get video info again to get fresh download URLs
-    const response = await axios.get(`${instance}/api/v1/videos/${videoId}`, {
-        timeout: 10000,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    try {
+        // Build yt-dlp command
+        let cmd = `yt-dlp --dump-single-json --no-warnings`;
+        
+        // Add cookies if provided
+        if (cookies) {
+            const cookiePath = path.join(TEMP_DIR, `cookies_${videoId}.txt`);
+            await fs.writeFile(cookiePath, cookies);
+            cmd += ` --cookies "${cookiePath}"`;
         }
-    });
-    
-    const data = response.data;
-    
-    // Find the best format based on quality preference
-    let downloadUrl = null;
-    const formats = data.formatStreams || [];
-    
-    // Quality mapping
-    const qualityMap = {
-        'best': 0, // highest quality
-        '2160': 2160,
-        '1080': 1080,
-        '720': 720,
-        '480': 480,
-    };
-    
-    const targetHeight = qualityMap[quality] || 0;
-    
-    // Sort formats by resolution (highest first)
-    const sortedFormats = formats
-        .filter(f => f.url && f.resolution)
-        .sort((a, b) => {
-            const aHeight = parseInt(a.resolution) || 0;
-            const bHeight = parseInt(b.resolution) || 0;
-            return bHeight - aHeight;
+        
+        cmd += ` "https://www.youtube.com/watch?v=${videoId}"`;
+        
+        console.log(`[Downloader] Running: ${cmd}`);
+        const output = execSync(cmd, { 
+            encoding: 'utf8', 
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024 
         });
-    
-    if (targetHeight === 0) {
-        // Best quality - take the first one
-        downloadUrl = sortedFormats[0]?.url;
-    } else {
-        // Find closest match
-        downloadUrl = sortedFormats.find(f => {
-            const height = parseInt(f.resolution) || 0;
-            return height <= targetHeight;
-        })?.url || sortedFormats[sortedFormats.length - 1]?.url;
-    }
-    
-    if (!downloadUrl) {
-        throw new Error('No downloadable format found');
-    }
-    
-    console.log(`[Downloader] Downloading from: ${downloadUrl.substring(0, 100)}...`);
-    
-    // Download the video
-    const writer = fs.createWriteStream(outputPath);
-    
-    const response2 = await axios({
-        url: downloadUrl,
-        method: 'GET',
-        responseType: 'stream',
-        timeout: 300000, // 5 minutes
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        
+        const data = JSON.parse(output);
+        
+        // Clean up cookie file
+        if (cookies) {
+            await fs.remove(path.join(TEMP_DIR, `cookies_${videoId}.txt`)).catch(() => {});
         }
-    });
-    
-    const totalLength = response2.headers['content-length'];
-    let downloadedLength = 0;
-    
-    response2.data.on('data', (chunk) => {
-        downloadedLength += chunk.length;
-        if (totalLength && onProgress) {
-            const percent = Math.round((downloadedLength / totalLength) * 100);
-            onProgress(percent);
-        }
-    });
-    
-    response2.data.pipe(writer);
-    
-    return new Promise((resolve, reject) => {
-        writer.on('finish', () => resolve(outputPath));
-        writer.on('error', reject);
-    });
+        
+        console.log(`[Downloader] Info fetched: ${data.title}`);
+        return {
+            title: data.title,
+            thumbnail: data.thumbnail || `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+            duration: data.duration || 0,
+            id: videoId
+        };
+    } catch (error) {
+        console.error(`[Downloader] Info fetch failed: ${error.message}`);
+        throw new Error('Failed to fetch video info. Make sure you are logged into YouTube and provide cookies.');
+    }
 }
 
 /**
  * Download video with progress tracking
  */
-async function downloadVideo(url, onProgress, quality = 'best') {
+async function downloadVideo(url, onProgress, quality = 'best', cookies = null) {
     const id = uuidv4();
     const outputPath = path.join(TEMP_DIR, `${id}.mp4`);
     console.log(`[Downloader] Starting download: ${url} -> ${outputPath} (quality: ${quality})`);
@@ -185,23 +84,55 @@ async function downloadVideo(url, onProgress, quality = 'best') {
         throw new Error('Invalid YouTube URL');
     }
     
-    // Try each Invidious instance
-    for (const instance of INVIDIOUS_INSTANCES) {
-        try {
-            console.log(`[Downloader] Trying to download from: ${instance}`);
-            await downloadFromInvidious(videoId, instance, quality, outputPath, onProgress);
-            
-            if (await fs.exists(outputPath)) {
-                console.log(`[Downloader] Download completed: ${outputPath}`);
-                return outputPath;
-            }
-        } catch (error) {
-            console.log(`[Downloader] Failed with ${instance}: ${error.message}`);
-            continue;
-        }
-    }
+    // Quality presets
+    const formatMap = {
+        'best': 'bestvideo+bestaudio/best',
+        '2160': 'bestvideo[height<=2160]+bestaudio/best[height<=2160]/best',
+        '1080': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+        '720': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        '480': 'bestvideo[height<=480]+bestaudio/best[height<=480]/best',
+    };
+    const format = formatMap[quality] || formatMap['best'];
     
-    throw new Error('Failed to download video from all instances. Please try again or upload the video directly.');
+    try {
+        // Build yt-dlp command
+        let cmd = `yt-dlp`;
+        cmd += ` -f "${format}"`;
+        cmd += ` --merge-output-format mp4`;
+        cmd += ` --no-warnings`;
+        cmd += ` -o "${outputPath}"`;
+        
+        // Add cookies if provided
+        if (cookies) {
+            const cookiePath = path.join(TEMP_DIR, `cookies_${videoId}.txt`);
+            await fs.writeFile(cookiePath, cookies);
+            cmd += ` --cookies "${cookiePath}"`;
+        }
+        
+        cmd += ` "https://www.youtube.com/watch?v=${videoId}"`;
+        
+        console.log(`[Downloader] Running: ${cmd}`);
+        execSync(cmd, { 
+            encoding: 'utf8', 
+            timeout: 300000, // 5 minutes
+            maxBuffer: 100 * 1024 * 1024 
+        });
+        
+        // Clean up cookie file
+        if (cookies) {
+            await fs.remove(path.join(TEMP_DIR, `cookies_${videoId}.txt`)).catch(() => {});
+        }
+        
+        if (await fs.exists(outputPath)) {
+            console.log(`[Downloader] Download completed: ${outputPath}`);
+            return outputPath;
+        } else {
+            throw new Error('Downloaded file not found');
+        }
+    } catch (error) {
+        console.error(`[Downloader] Download failed: ${error.message}`);
+        throw new Error('Failed to download video. Make sure you are logged into YouTube and provide cookies.');
+    }
 }
 
 module.exports = { getVideoInfo, downloadVideo };
