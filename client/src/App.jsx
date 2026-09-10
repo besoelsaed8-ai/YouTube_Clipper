@@ -41,6 +41,22 @@ function App() {
     setStep('settings');
   };
 
+  const handleFileUpload = (file, shortsOnly) => {
+    // Create a local URL for the video
+    const localUrl = URL.createObjectURL(file);
+    setVideoUrl(localUrl);
+    setVideoInfo({
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      thumbnail: null,
+      duration: 0, // Will be detected during processing
+      id: 'local-' + Date.now(),
+      isLocalFile: true,
+      file: file,
+      shortsOnly
+    });
+    setStep('settings');
+  };
+
   // User clicks "Start Processing" → show pre-process ad first
   const handleStartProcessing = (duration, crop, outputDir, shortsOnly, quality) => {
     setPendingSettings({ duration, crop, outputDir, shortsOnly, quality });
@@ -56,12 +72,19 @@ function App() {
     abortRef.current = false;
 
     try {
-      // Step 1: Download from server
-      setJobStatus({ status: 'downloading', progress: 0, error: null });
+      let videoBlob;
 
-      const videoBlob = await downloadVideoFile(videoUrl, quality || 'best', (percent) => {
-        setJobStatus(prev => ({ ...prev, progress: Math.floor(percent * 0.4) }));
-      });
+      if (videoInfo?.isLocalFile && videoInfo?.file) {
+        // Local file - skip download
+        setJobStatus({ status: 'processing', progress: 10, error: null });
+        videoBlob = videoInfo.file;
+      } else {
+        // Step 1: Download from server
+        setJobStatus({ status: 'downloading', progress: 0, error: null });
+        videoBlob = await downloadVideoFile(videoUrl, quality || 'best', (percent) => {
+          setJobStatus(prev => ({ ...prev, progress: Math.floor(percent * 0.4) }));
+        });
+      }
 
       if (abortRef.current) return;
 
@@ -165,7 +188,7 @@ function App() {
           <div className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
             {/* ── Input Step ── */}
             {step === 'input' && (
-              <UrlInput onVideoFound={handleVideoFound} />
+              <UrlInput onVideoFound={handleVideoFound} onFileUpload={handleFileUpload} />
             )}
 
             {/* ── Settings Step ── */}
