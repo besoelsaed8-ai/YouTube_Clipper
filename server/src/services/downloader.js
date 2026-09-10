@@ -78,11 +78,9 @@ async function downloadVideo(url, onProgress, quality = 'best') {
 
         process.stdout.on('data', (data) => {
             const line = data.toString();
-            // Parse progress percentage from yt-dlp output (e.g., "[download]  10.5% of...")
             const match = line.match(/\[download\]\s+(\d+\.?\d*)%/);
             if (match && onProgress) {
                 const percent = parseFloat(match[1]);
-                // Map download progress (0-100) to job progress (10-40)
                 onProgress(percent);
             }
         });
@@ -93,12 +91,10 @@ async function downloadVideo(url, onProgress, quality = 'best') {
 
         process.on('close', async (code) => {
             if (code === 0) {
-                // Robustness: check if the expected file exists, or if yt-dlp added a different extension
                 if (await fs.exists(outputPath)) {
                     console.log(`[Downloader] Download completed: ${outputPath}`);
                     resolve(outputPath);
                 } else {
-                    // Search for any file starting with the UUID in the temp dir
                     const files = await fs.readdir(TEMP_DIR);
                     const actualFile = files.find(f => f.startsWith(id) && !f.endsWith('.part'));
                     if (actualFile) {
