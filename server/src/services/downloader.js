@@ -4,12 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 const ytDlp = require('yt-dlp-exec');
 
 const TEMP_DIR = path.join(__dirname, '../../temp');
-
 const FFMPEG_PATH = process.env.FFMPEG_PATH || '';
 
-/**
- * Get video metadata
- */
 async function getVideoInfo(url) {
     console.log(`[Downloader] Fetching info for: ${url}`);
     try {
@@ -36,9 +32,6 @@ async function getVideoInfo(url) {
     }
 }
 
-/**
- * Download video with progress tracking
- */
 async function downloadVideo(url, onProgress, quality = 'best') {
     const id = uuidv4();
     const outputPath = path.join(TEMP_DIR, `${id}.mp4`);
@@ -71,9 +64,7 @@ async function downloadVideo(url, onProgress, quality = 'best') {
         proc.stdout.on('data', (data) => {
             const line = data.toString();
             const match = line.match(/\[download\]\s+(\d+\.?\d*)%/);
-            if (match && onProgress) {
-                onProgress(parseFloat(match[1]));
-            }
+            if (match && onProgress) onProgress(parseFloat(match[1]));
         });
 
         proc.stderr.on('data', (data) => {
@@ -83,16 +74,12 @@ async function downloadVideo(url, onProgress, quality = 'best') {
         proc.on('close', async (code) => {
             if (code === 0) {
                 if (await fs.exists(outputPath)) {
-                    console.log(`[Downloader] Download completed: ${outputPath}`);
                     resolve(outputPath);
                 } else {
                     const files = await fs.readdir(TEMP_DIR);
                     const actualFile = files.find(f => f.startsWith(id) && !f.endsWith('.part'));
-                    if (actualFile) {
-                        resolve(path.join(TEMP_DIR, actualFile));
-                    } else {
-                        reject(new Error(`Downloaded file not found for ID: ${id}`));
-                    }
+                    if (actualFile) resolve(path.join(TEMP_DIR, actualFile));
+                    else reject(new Error(`Downloaded file not found for ID: ${id}`));
                 }
             } else {
                 reject(new Error(`yt-dlp exited with code ${code}`));
