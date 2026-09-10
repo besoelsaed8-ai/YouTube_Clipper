@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Loader2, Zap, ArrowRight, Film, Scissors, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Loader2, Zap, ArrowRight, Film, Scissors, Sparkles, Upload } from 'lucide-react';
 import { getVideoInfo } from '../api/api';
 import SeoContent from './SeoContent';
 
-export default function UrlInput({ onVideoFound }) {
+export default function UrlInput({ onVideoFound, onFileUpload }) {
     const [url, setUrl] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [forceShorts, setForceShorts] = useState(true);
     const [mounted, setMounted] = useState(false);
+    const [dragActive, setDragActive] = useState(false);
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
         setMounted(true);
@@ -95,6 +97,52 @@ export default function UrlInput({ onVideoFound }) {
                                 Clear
                             </button>
                         )}
+                    </div>
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-4">
+                        <div className="flex-1 h-px bg-slate-700/50" />
+                        <span className="text-slate-500 text-sm">or</span>
+                        <div className="flex-1 h-px bg-slate-700/50" />
+                    </div>
+
+                    {/* File upload */}
+                    <div
+                        onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            setDragActive(false);
+                            const file = e.dataTransfer.files[0];
+                            if (file && file.type.startsWith('video/')) {
+                                onFileUpload(file, forceShorts);
+                            } else {
+                                setError('Please upload a video file');
+                            }
+                        }}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
+                            dragActive 
+                                ? 'border-indigo-500 bg-indigo-500/10' 
+                                : 'border-slate-700 hover:border-slate-600 bg-slate-800/30'
+                        }`}
+                    >
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) onFileUpload(file, forceShorts);
+                            }}
+                        />
+                        <Upload className="w-8 h-8 mx-auto mb-3 text-slate-500" />
+                        <p className="text-slate-400 text-sm">
+                            <span className="text-indigo-400 font-medium">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-slate-600 text-xs mt-1">MP4, MOV, AVI, MKV (max 2GB)</p>
                     </div>
 
                     {/* Shorts toggle */}
