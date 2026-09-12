@@ -74,6 +74,8 @@ router.get('/status/:id', (req, res) => {
 
 /**
  * Download-only endpoint: returns the video file for client-side processing.
+ * Server only handles downloading via yt-dlp.
+ * All CPU-heavy work (split, crop) happens in the browser with ffmpeg.wasm.
  */
 router.post('/download', async (req, res) => {
     try {

@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Clock, Crop, ArrowRight, Play, FolderOpen, ArrowLeft, Check, Video, Gem } from 'lucide-react';
+import { Clock, Crop, ArrowRight, Play, FolderOpen, ArrowLeft, Check, Video, Gem, Sparkles, Zap, ScanFace } from 'lucide-react';
+import EffectsEditor from './EffectsEditor';
 
 export default function Settings({ videoInfo, onStartProcessing, onBack }) {
     const [duration, setDuration] = useState(30);
     const [crop, setCrop] = useState(videoInfo.shortsOnly || true);
     const [outputDir, setOutputDir] = useState('');
     const [quality, setQuality] = useState('best');
+    const [aiMode, setAiMode] = useState(false);
+    const [faceTrack, setFaceTrack] = useState(true);
+    const [effects, setEffects] = useState({ color: 'none', zoom: 'none', speed: 'none' });
 
     const qualities = [
         { value: 'best', label: 'Best', desc: 'Highest available' },
@@ -104,8 +108,98 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                         </div>
                     </div>
 
-                    {/* Crop format */}
+                    {/* AI Mode Toggle */}
                     <div>
+                        <button
+                            onClick={() => setAiMode(!aiMode)}
+                            className={`w-full p-4 rounded-2xl border transition-all duration-300 flex items-center justify-between group ${
+                                aiMode
+                                    ? 'border-purple-500/40 bg-gradient-to-r from-purple-500/10 to-pink-500/10'
+                                    : 'border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/50'
+                            }`}
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                                    aiMode ? 'bg-purple-500/20 shadow-inner' : 'bg-slate-800'
+                                }`}>
+                                    <Sparkles className={`w-6 h-6 ${aiMode ? 'text-purple-400' : 'text-slate-500'}`} />
+                                </div>
+                                <div className="text-left">
+                                    <div className={`font-semibold text-base ${aiMode ? 'text-purple-300' : 'text-slate-300'} transition-colors`}>
+                                        AI Smart Highlights
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-0.5">
+                                        {aiMode ? 'Analyzing scenes, audio & energy' : 'Auto-detect best moments with scene analysis'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                                aiMode ? 'border-purple-500 bg-purple-500 shadow-lg shadow-purple-500/30' : 'border-slate-600'
+                            }`}>
+                                {aiMode && <Check className="w-3.5 h-3.5 text-white" />}
+                            </div>
+                        </button>
+                    </div>
+
+                    {/* AI Mode info */}
+                    {aiMode && (
+                        <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-2 animate-slide-up">
+                            <div className="flex items-center gap-2 text-sm font-medium text-purple-300">
+                                <Zap className="w-4 h-4" />
+                                AI Mode Active
+                            </div>
+                            <ul className="text-xs text-slate-400 space-y-1.5 ml-6">
+                                <li>• Scene detection finds natural cuts and transitions</li>
+                                <li>• Audio energy analysis highlights exciting moments</li>
+                                <li>• Top {Math.min(10, Math.floor(videoInfo.duration / duration))} clips ranked by engagement score</li>
+                                <li>• Add captions to each clip for social media</li>
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Face Tracking Toggle (only when crop is enabled) */}
+                    {crop && (
+                        <div>
+                            <button
+                                onClick={() => setFaceTrack(!faceTrack)}
+                                className={`w-full p-4 rounded-2xl border transition-all duration-300 flex items-center justify-between group ${
+                                    faceTrack
+                                        ? 'border-green-500/40 bg-gradient-to-r from-green-500/10 to-emerald-500/10'
+                                        : 'border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/50'
+                                }`}
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                                        faceTrack ? 'bg-green-500/20 shadow-inner' : 'bg-slate-800'
+                                    }`}>
+                                        <ScanFace className={`w-6 h-6 ${faceTrack ? 'text-green-400' : 'text-slate-500'}`} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className={`font-semibold text-base ${faceTrack ? 'text-green-300' : 'text-slate-300'} transition-colors`}>
+                                            Face Tracking
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-0.5">
+                                            {faceTrack ? 'Following faces — crop moves with people' : 'Smart crop follows faces instead of center'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                                    faceTrack ? 'border-green-500 bg-green-500 shadow-lg shadow-green-500/30' : 'border-slate-600'
+                                }`}>
+                                    {faceTrack && <Check className="w-3.5 h-3.5 text-white" />}
+                                </div>
+                            </button>
+
+                            {faceTrack && (
+                                <div className="mt-2 bg-green-500/5 border border-green-500/15 rounded-xl p-3 text-xs text-green-300/70">
+                                    <span className="font-medium">How it works:</span> The app analyzes your video and detects faces. The 9:16 crop automatically follows the person instead of staying in the center. Free — runs in your browser!
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Crop format (disabled in AI mode) */}
+                    <div className={aiMode ? 'opacity-50 pointer-events-none' : ''}>
                         <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
                             <Crop className="w-4 h-4" /> Output Format
                         </label>
@@ -174,13 +268,20 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                         </p>
                     </div>
 
+                {/* Effects Editor */}
+                <EffectsEditor effects={effects} onChange={setEffects} />
+
                 {/* Start button */}
                 <button
-                    onClick={() => onStartProcessing(duration, crop, outputDir, videoInfo.shortsOnly, quality)}
-                    className="btn-primary w-full flex items-center justify-center gap-3 py-4 text-base rounded-2xl"
+                    onClick={() => onStartProcessing(duration, crop, outputDir, videoInfo.shortsOnly, quality, aiMode, faceTrack && crop, effects)}
+                    className={`w-full flex items-center justify-center gap-3 py-4 text-base rounded-2xl transition-all duration-300 ${
+                        aiMode
+                            ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-500/25'
+                            : 'btn-primary'
+                    }`}
                 >
-                    <Play className="w-5 h-5" />
-                    <span>Start Processing</span>
+                    {aiMode ? <Sparkles className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                    <span>{aiMode ? 'Analyze with AI' : 'Start Processing'}</span>
                     <ArrowRight className="w-5 h-5" />
                 </button>
             </div>

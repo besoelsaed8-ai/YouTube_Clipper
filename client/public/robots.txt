@@ -1,8 +1,16 @@
 # Robots.txt - YouTube Clipper
-# Allow all crawlers
+# https://clipper.dockhosting.dev/robots.txt
 
 User-agent: *
 Allow: /
 
+# Block API and processing endpoints
+Disallow: /api/
+Disallow: /health
+Disallow: /downloads/
+
+# Block temporary/processing pages
+Disallow: /admin
+
 # Sitemap
-Sitemap: https://your-domain.com/sitemap.xml
+Sitemap: https://clipper.dockhosting.dev/sitemap.xml
