@@ -45,6 +45,7 @@ export const processVideo = async (url, duration, crop, outputDir, shortsOnly, q
  * Download video file from server for client-side processing
  */
 export const downloadVideoFile = async (url, quality, onProgress, cookies = null) => {
+    let serverError = '';
     try {
         const response = await api.post('/download', { url, quality, cookies }, {
             responseType: 'blob',
@@ -58,7 +59,28 @@ export const downloadVideoFile = async (url, quality, onProgress, cookies = null
         });
         return response.data;
     } catch (error) {
-        throw new Error('YouTube download failed. Please upload the video file directly.');
+        // Surface the real server reason instead of a generic message
+        serverError = error?.response?.data?.error || error?.message || 'unknown error';
+        // Retry once with a lower quality — large "best" downloads are the most common failure
+        if (quality && quality !== 'worst') {
+            try {
+                if (onProgress) onProgress(0);
+                const retry = await api.post('/download', { url, quality: 'worst', cookies }, {
+                    responseType: 'blob',
+                    onDownloadProgress: (progressEvent) => {
+                        if (onProgress && progressEvent.total) {
+                            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                            onProgress(percent);
+                        }
+                    },
+                    timeout: 600000,
+                });
+                return retry.data;
+            } catch (retryError) {
+                serverError = retryError?.response?.data?.error || retryError?.message || serverError;
+            }
+        }
+        throw new Error(`YouTube download failed: ${serverError}. Tip: upload the video file directly instead — it always works.`);
     }
 };
 
