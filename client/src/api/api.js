@@ -22,72 +22,126 @@ const COBALT_INSTANCES = [
     'https://cobalt.canine.tools',
 ];
 
-/**
- * Download video DIRECTLY from browser using Cobalt API.
- * This uses the USER'S IP (residential), not the server IP.
- * YouTube doesn't block residential IPs!
- * 
- * IMPORTANT: Video is saved to IndexedDB (disk) not RAM.
- * This means even 2GB videos won't crash the browser.
- */
-export const downloadFromBrowser = async (url, onProgress) => {
-    const videoId = `yt_${Date.now()}`;
+// ═══════════════════════════════════════════════════════════════
+// FREE CORS PROXIES (to call Cobalt API from browser)
+// ═══════════════════════════════════════════════════════════════
+const CORS_PROXIES = [
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
 
-    for (const instance of COBALT_INSTANCES) {
+/**
+ * Call Cobalt API via CORS proxy (from browser, zero server load)
+ */
+async function callCobaltViaProxy(cobaltUrl, body) {
+    for (const proxyFn of CORS_PROXIES) {
         try {
-            console.log(`[Client] Trying Cobalt: ${instance}`);
-            const resp = await fetch(instance, {
+            const proxyUrl = proxyFn(cobaltUrl);
+            console.log(`[Client] Trying CORS proxy: ${proxyUrl.slice(0, 60)}...`);
+            const resp = await fetch(proxyUrl, {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    url: url,
-                    videoQuality: '1080',
-                    filenameStyle: 'pretty',
-                }),
+                body: JSON.stringify(body),
+                timeout: 30000,
             });
-
-            if (!resp.ok) continue;
-            const data = await resp.json();
-
-            if (data?.url) {
-                console.log(`[Client] ✅ Cobalt returned download URL`);
-                // Download the actual video file
-                const videoResp = await fetch(data.url);
-                if (!videoResp.ok) continue;
-
-                const contentLength = parseInt(videoResp.headers.get('content-length') || '0');
-                const reader = videoResp.body.getReader();
-                const chunks = [];
-                let received = 0;
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-                    if (onProgress && contentLength > 0) {
-                        onProgress(Math.round((received / contentLength) * 100));
-                    }
-                }
-
-                const blob = new Blob(chunks, { type: 'video/mp4' });
-                console.log(`[Client] ✅ Downloaded ${Math.round(blob.size / 1024 / 1024)}MB from browser`);
-
-                // Save to IndexedDB (disk storage, not RAM!)
-                await saveVideo(videoId, blob, { url, downloadedAt: Date.now() });
-                console.log(`[Client] ✅ Saved to disk (IndexedDB)`);
-
-                return { blob, videoId };
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data?.url) return data;
             }
         } catch (e) {
-            console.log(`[Client] ❌ ${instance} failed: ${e.message}`);
+            console.log(`[Client] ❌ CORS proxy failed: ${e.message}`);
             continue;
         }
     }
-    throw new Error('All download methods failed');
+    return null;
+}
+
+/**
+ * Download video from browser — ZERO server load!
+ * 
+ * Strategy:
+ * 1. Browser calls Cobalt API via CORS proxy → gets CDN download URL
+ * 2. Browser downloads from CDN directly
+ * 3. Video saved to IndexedDB (disk, not RAM)
+ * 
+ * Server is NOT involved at all! All processing happens on user's device.
+ */
+export const downloadFromBrowser = async (url, onProgress) => {
+    const videoId = `yt_${Date.now()}`;
+
+    // Step 1: Get CDN URL from Cobalt via CORS proxy (browser → proxy → Cobalt)
+    let downloadUrl = null;
+
+    // Try direct first (some Cobalt instances have CORS)
+    for (const instance of COBALT_INSTANCES) {
+        try {
+            console.log(`[Client] Trying direct: ${instance}`);
+            const resp = await fetch(instance, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, videoQuality: '1080', filenameStyle: 'pretty' }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data?.url) { downloadUrl = data.url; break; }
+            }
+        } catch (e) { continue; }
+    }
+
+    // If direct failed, try via CORS proxy
+    if (!downloadUrl) {
+        for (const instance of COBALT_INSTANCES) {
+            const data = await callCobaltViaProxy(instance, {
+                url, videoQuality: '1080', filenameStyle: 'pretty'
+            });
+            if (data?.url) { downloadUrl = data.url; break; }
+        }
+    }
+
+    // Last resort: try server proxy
+    if (!downloadUrl) {
+        try {
+            console.log('[Client] Trying server proxy as last resort...');
+            const resp = await api.post('/cobalt-proxy', { url });
+            if (resp.data?.downloadUrl) downloadUrl = resp.data.downloadUrl;
+        } catch (e) { /* server also failed */ }
+    }
+
+    if (!downloadUrl) throw new Error('All download methods failed');
+
+    console.log('[Client] ✅ Got CDN URL, downloading in browser...');
+
+    // Step 2: Download from CDN directly in browser
+    const videoResp = await fetch(downloadUrl);
+    if (!videoResp.ok) throw new Error(`CDN download failed: ${videoResp.status}`);
+
+    const contentLength = parseInt(videoResp.headers.get('content-length') || '0');
+    const reader = videoResp.body.getReader();
+    const chunks = [];
+    let received = 0;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (onProgress && contentLength > 0) {
+            onProgress(Math.round((received / contentLength) * 100));
+        }
+    }
+
+    const blob = new Blob(chunks, { type: 'video/mp4' });
+    console.log(`[Client] ✅ Downloaded ${Math.round(blob.size / 1024 / 1024)}MB from CDN`);
+
+    // Step 3: Save to IndexedDB (disk storage, not RAM!)
+    await saveVideo(videoId, blob, { url, downloadedAt: Date.now() });
+    console.log(`[Client] ✅ Saved to disk (IndexedDB)`);
+
+    return { blob, videoId };
 };
 
 /**
