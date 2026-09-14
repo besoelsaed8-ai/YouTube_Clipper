@@ -1,16 +1,81 @@
-# React + Vite
+# YouTube Clipper
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern web application to download YouTube videos and split them into short clips using free tools (`yt-dlp` and `FFmpeg`).
 
-Currently, two official plugins are available:
+[Screenshot placeholder]
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- 🎥 Download YouTube videos using `yt-dlp`.
+- ✂️ Automatically split videos into 30s, 45s, or 60s clips.
+- 📱 Option to crop to vertical 9:16 (Shorts format).
+- ⬇️ Download individual clips.
+- 🧹 Auto-cleanup of temporary files after 1 hour.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Prerequisites
 
-## Expanding the ESLint configuration
+Ensure the following tools are installed and available in your system PATH:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. **Node.js**: [Download](https://nodejs.org/)
+2. **FFmpeg**: [Download](https://ffmpeg.org/download.html)
+3. **yt-dlp**: [Download](https://github.com/yt-dlp/yt-dlp)
+
+## Installation
+
+1. Clone the repository (or extract the project).
+
+2. **Backend Setup**:
+
+   ```bash
+   cd server
+   npm install
+   ```
+
+3. **Frontend Setup**:
+
+   ```bash
+   cd client
+   npm install
+   ```
+
+## Running the Application
+
+1. **Start the Backend**:
+
+   ```bash
+   cd server
+   npm run dev
+   ```
+
+   The server will start on `http://localhost:3000`.
+
+2. **Start the Frontend**:
+
+   ```bash
+   cd client
+   npm run dev
+   ```
+
+   The client will start on `http://localhost:5173`.
+
+## Usage
+
+1. Open the frontend URL in your browser.
+2. Paste a valid YouTube URL.
+3. Select clip duration and crop settings.
+4. Click "Start Processing".
+5. Wait for the process to complete (downloading -> splitting).
+6. Preview and download your clips!
+
+## Tech Stack
+
+- **Frontend**: React, Vite, Tailwind CSS, Axios, Lucide React.
+- **Backend**: Node.js, Express.
+- **Tools**: yt-dlp, FFmpeg.
+
+## Project Structure
+
+- `server/`: Node.js Express API.
+  - `temp/`: Temporary storage for raw downloads.
+  - `output/`: Processed clips for download.
+- `client/`: React Frontend.

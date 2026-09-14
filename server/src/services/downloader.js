@@ -6,6 +6,9 @@ const axios = require('axios');
 
 const TEMP_DIR = path.join(__dirname, '../../temp');
 
+// ─── Local Cobalt instance (Docker internal network) ───────────
+const LOCAL_COBALT_URL = process.env.COBALT_API_URL || 'http://cobalt:9000';
+
 // ─── yt-dlp detection ───────────────────────────────────────────
 const YTDLP_CANDIDATES = [
     process.env.YTDLP_PATH,
@@ -150,9 +153,36 @@ async function getInfoOEmbed(url) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// METHOD 4: Cobalt API (multiple public instances)
+// METHOD 4: LOCAL Cobalt instance (self-hosted, most reliable)
 // ═══════════════════════════════════════════════════════════════
-const COBALT_INSTANCES = [
+async function getInfoLocalCobalt(url) {
+    const videoId = extractVideoId(url);
+    try {
+        const resp = await axios.post(LOCAL_COBALT_URL, {
+            url: normalizeUrl(url),
+            videoQuality: '1080',
+            filenameStyle: 'pretty',
+        }, {
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        if (resp.data?.url) {
+            return {
+                title: resp.data.filename || 'YouTube Video',
+                thumbnail: videoId ? `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg` : null,
+                duration: 0, id: videoId || 'unknown',
+                downloadUrl: resp.data.url, source: 'local-cobalt',
+            };
+        }
+    } catch (e) {
+        throw new Error(`Local Cobalt failed: ${e.message}`);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// METHOD 5: Public Cobalt instances (fallback)
+// ═══════════════════════════════════════════════════════════════
+const PUBLIC_COBALT_INSTANCES = [
     'https://api.cobalt.tools',
     'https://cobalt-api.kwiatekmiki.com',
     'https://api.duck.cobalt.tools',
@@ -163,7 +193,7 @@ const COBALT_INSTANCES = [
 
 async function getInfoCobalt(url) {
     const videoId = extractVideoId(url);
-    for (const instance of COBALT_INSTANCES) {
+    for (const instance of PUBLIC_COBALT_INSTANCES) {
         try {
             const resp = await axios.post(instance, {
                 url: normalizeUrl(url),
@@ -183,11 +213,11 @@ async function getInfoCobalt(url) {
             }
         } catch (e) { continue; }
     }
-    throw new Error('All Cobalt instances failed');
+    throw new Error('All public Cobalt instances failed');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// METHOD 5: Invidious API (public instances)
+// METHOD 6: Invidious API (public instances)
 // ═══════════════════════════════════════════════════════════════
 const INVIDIOUS_INSTANCES = [
     'https://vid.puffyan.us',
@@ -210,8 +240,6 @@ async function getInfoInvidious(url) {
             if (resp.data) {
                 const d = resp.data;
                 const formatStreams = d.formatStreams || [];
-                const adaptiveFormats = d.adaptiveFormats || [];
-                // Find a downloadable format
                 let downloadUrl = null;
                 const mp4Stream = formatStreams.find(f => f.container === 'mp4' && f.resolution === '720p')
                     || formatStreams.find(f => f.container === 'mp4')
@@ -233,7 +261,7 @@ async function getInfoInvidious(url) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// METHOD 6: Piped API (public instances)
+// METHOD 7: Piped API (public instances)
 // ═══════════════════════════════════════════════════════════════
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
@@ -253,7 +281,6 @@ async function getInfoPiped(url) {
             if (resp.data) {
                 const d = resp.data;
                 const videoStreams = d.videoStreams || [];
-                // Find best mp4 stream
                 const mp4Stream = videoStreams.find(s => s.mimeType?.includes('video/mp4') && s.quality === '720p')
                     || videoStreams.find(s => s.mimeType?.includes('video/mp4'))
                     || videoStreams[0];
@@ -281,7 +308,8 @@ async function getVideoInfo(url, cookies = null) {
     const methods = [
         ['yt-dlp', () => getInfoYtdlp(url, cookies)],
         ['ytdl-core', () => getInfoYtdlCore(url)],
-        ['Cobalt', () => getInfoCobalt(url)],
+        ['Local Cobalt', () => getInfoLocalCobalt(url)],
+        ['Public Cobalt', () => getInfoCobalt(url)],
         ['Invidious', () => getInfoInvidious(url)],
         ['Piped', () => getInfoPiped(url)],
         ['oEmbed', () => getInfoOEmbed(url)],
@@ -408,7 +436,7 @@ async function downloadVideo(url, onProgress, quality = 'best', cookies = null) 
             const result = await fn();
             if (result && await fs.exists(result)) {
                 const stat = await fs.stat(result);
-                if (stat.size > 10000) { // At least 10KB
+                if (stat.size > 10000) {
                     console.log(`[Downloader] ✅ Download success via ${name} (${Math.round(stat.size / 1024 / 1024)}MB)`);
                     return result;
                 }
@@ -430,9 +458,19 @@ async function downloadVideo(url, onProgress, quality = 'best', cookies = null) 
     const r2 = await tryMethod('ytdl-core', () => downloadYtdlCore(url, outputPath, quality, onProgress));
     if (r2) return r2;
 
-    // 3. Try to get direct URL from Cobalt/Invidious/Piped and download
+    // 3. LOCAL Cobalt instance (self-hosted, most reliable)
+    const r3 = await tryMethod('Local Cobalt', async () => {
+        const data = await getInfoLocalCobalt(url);
+        if (data?.downloadUrl) {
+            return await downloadFromUrl(data.downloadUrl, outputPath, onProgress);
+        }
+        return null;
+    });
+    if (r3) return r3;
+
+    // 4. Try to get direct URL from public Cobalt/Invidious/Piped and download
     const serviceMethods = [
-        ['Cobalt', () => getInfoCobalt(url)],
+        ['Public Cobalt', () => getInfoCobalt(url)],
         ['Invidious', () => getInfoInvidious(url)],
         ['Piped', () => getInfoPiped(url)],
     ];

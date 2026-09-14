@@ -1,0 +1,68 @@
+# ═══════════════════════════════════════════════════════
+# YouTube Clipper + Cobalt (YouTube Download Service)
+# ═══════════════════════════════════════════════════════
+#
+# Services:
+#   1. app       — The YouTube Clipper website (Node.js + FFmpeg)
+#   2. cobalt    — Self-hosted Cobalt API for YouTube/TikTok/Twitter downloads
+#
+# How it works:
+#   User pastes YouTube link → Frontend calls /api/download
+#   → Server calls Cobalt (internal network) → Cobalt fetches from YouTube
+#   → Video URL returned → Frontend processes with FFmpeg WASM
+#
+
+services:
+  # ── Main Application ──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: youtube-clipper
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - COBALT_API_URL=http://cobalt:9000
+    depends_on:
+      cobalt:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ── Cobalt (YouTube/TikTok/Twitter Download Service) ──
+  cobalt:
+    image: ghcr.io/imputnet/cobalt:latest
+    container_name: cobalt
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      # ── CORS: Allow requests from our app ──
+      - API_URL=http://localhost:9000
+      - API_PORT=9000
+      # ── Rate limiting ──
+      - API_RATE_LIMIT_URL_LENGTH=4096
+      - API_RATE_LIMIT_MAX_REQUESTS=20
+      - API_RATE_LIMIT_WINDOW_INTERVAL=60000
+      # ── CORS: Allow all origins (for development) ──
+      - API_CORS_WILDCARD=1
+      # ── YouTube specific ──
+      - YOUTUBE_SESSION_CACHE=1
+      - YOUTUBE_SKIP_IP=1
+      # ── Security ──
+      - API_AUTH_required=0
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
