@@ -82,10 +82,12 @@ app.use('/downloads', express.static(path.join(__dirname, 'output')));
 // ROUTES
 // ═══════════════════════════════════════════════════════════════
 const clipDirectRoutes = require('./src/routes/clipDirect');
+const cobaltProxyRoutes = require('./src/routes/cobaltProxy');
 
 app.use('/api', videoRoutes);
 app.use('/api/transcribe', transcribeRoutes);
 app.use('/api/clip-direct', strictLimiter, clipDirectRoutes);
+app.use('/api/cobalt-proxy', apiLimiter, cobaltProxyRoutes);
 
 // ═══════════════════════════════════════════════════════════════
 // QUEUE API (for submitting jobs)
