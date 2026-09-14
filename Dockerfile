@@ -10,9 +10,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install Python + yt-dlp + FFmpeg + Whisper
-RUN apk add --no-cache python3 py3-pip ffmpeg gcc g++ musl-dev redis
-RUN pip3 install --break-system-packages yt-dlp openai-whisper
+# Install Python + yt-dlp + FFmpeg
+RUN apk add --no-cache python3 py3-pip ffmpeg redis
+RUN pip3 install --break-system-packages yt-dlp
 
 # Server
 WORKDIR /app/server
