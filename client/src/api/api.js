@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { saveVideo, loadVideo, deleteVideo } from './videoStore';
 
 // API configuration — same origin (no cross-origin needed in production)
 const getBaseURL = () => {
@@ -9,6 +10,85 @@ const api = axios.create({
     baseURL: getBaseURL(),
     timeout: 30000,
 });
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENT-SIDE DOWNLOAD via Cobalt API (from user's IP, not server)
+// Video is saved to DISK (IndexedDB) not RAM!
+// ═══════════════════════════════════════════════════════════════
+const COBALT_INSTANCES = [
+    'https://api.cobalt.tools',
+    'https://cobalt-api.kwiatekmiki.com',
+    'https://co.eepy.today',
+    'https://cobalt.canine.tools',
+];
+
+/**
+ * Download video DIRECTLY from browser using Cobalt API.
+ * This uses the USER'S IP (residential), not the server IP.
+ * YouTube doesn't block residential IPs!
+ * 
+ * IMPORTANT: Video is saved to IndexedDB (disk) not RAM.
+ * This means even 2GB videos won't crash the browser.
+ */
+export const downloadFromBrowser = async (url, onProgress) => {
+    const videoId = `yt_${Date.now()}`;
+
+    for (const instance of COBALT_INSTANCES) {
+        try {
+            console.log(`[Client] Trying Cobalt: ${instance}`);
+            const resp = await fetch(instance, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: url,
+                    videoQuality: '1080',
+                    filenameStyle: 'pretty',
+                }),
+            });
+
+            if (!resp.ok) continue;
+            const data = await resp.json();
+
+            if (data?.url) {
+                console.log(`[Client] ✅ Cobalt returned download URL`);
+                // Download the actual video file
+                const videoResp = await fetch(data.url);
+                if (!videoResp.ok) continue;
+
+                const contentLength = parseInt(videoResp.headers.get('content-length') || '0');
+                const reader = videoResp.body.getReader();
+                const chunks = [];
+                let received = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    if (onProgress && contentLength > 0) {
+                        onProgress(Math.round((received / contentLength) * 100));
+                    }
+                }
+
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                console.log(`[Client] ✅ Downloaded ${Math.round(blob.size / 1024 / 1024)}MB from browser`);
+
+                // Save to IndexedDB (disk storage, not RAM!)
+                await saveVideo(videoId, blob, { url, downloadedAt: Date.now() });
+                console.log(`[Client] ✅ Saved to disk (IndexedDB)`);
+
+                return { blob, videoId };
+            }
+        } catch (e) {
+            console.log(`[Client] ❌ ${instance} failed: ${e.message}`);
+            continue;
+        }
+    }
+    throw new Error('All download methods failed');
+};
 
 /**
  * Get video info from YouTube
@@ -42,14 +122,33 @@ export const processVideo = async (url, duration, crop, outputDir, shortsOnly, q
 };
 
 /**
- * Download video file from server for client-side processing.
- * If "best" quality fails, retries once at lower quality automatically.
+ * Download video file for client-side processing.
+ * Strategy: Try browser-side first (Cobalt API from user's IP), then server-side.
+ * 
+ * Returns: { blob, videoId } or just Blob for server-side
+ * - blob: The video data (for immediate processing)
+ * - videoId: ID to use for cleanup later
  */
 export const downloadVideoFile = async (url, quality, onProgress, cookies = null) => {
-    let lastError = '';
+    // STEP 1: Try client-side download via Cobalt (from USER's IP — YouTube allows this!)
+    // Video is saved to IndexedDB (disk) not RAM!
+    try {
+        console.log('[Client] Trying browser-side download via Cobalt...');
+        if (onProgress) onProgress(0);
+        const result = await downloadFromBrowser(url, onProgress);
+        if (result && result.blob && result.blob.size > 10000) {
+            console.log(`[Client] ✅ Browser download success: ${Math.round(result.blob.size / 1024 / 1024)}MB`);
+            return result; // { blob, videoId }
+        }
+    } catch (e) {
+        console.log(`[Client] ❌ Browser download failed: ${e.message}`);
+    }
 
-    const makeRequest = async (q) => {
-        return api.post('/download', { url, quality: q, cookies }, {
+    // STEP 2: Fallback to server-side download
+    try {
+        console.log('[Client] Trying server-side download...');
+        if (onProgress) onProgress(0);
+        const response = await api.post('/download', { url, quality, cookies }, {
             responseType: 'blob',
             onDownloadProgress: (progressEvent) => {
                 if (onProgress && progressEvent.total) {
@@ -59,37 +158,20 @@ export const downloadVideoFile = async (url, quality, onProgress, cookies = null
             },
             timeout: 600000,
         });
-    };
-
-    // First attempt
-    try {
-        const response = await makeRequest(quality);
-        return response.data;
+        return { blob: response.data, videoId: null };
     } catch (error) {
-        lastError = error?.response?.data?.error || error?.message || 'Connection failed';
+        // All methods failed
+        throw new Error('تعذر تحميل الفيديو من يوتيوب.\n\nالخيارات المتاحة:\n1. حمّل الفيديو من جهازك وارفعه مباشرة هنا\n2. جرّب رابط فيديو آخر\n\n💡 يمكنك أيضًا إدخال كوكيز يوتيوب لتحسين النتائج.');
+    }
+};
 
-        // If we asked for "best" or "1080" and it failed, retry at lower quality
-        if (quality && !['worst', '480'].includes(quality)) {
-            try {
-                if (onProgress) onProgress(0);
-                const retry = await makeRequest('480');
-                return retry.data;
-            } catch (retryError) {
-                lastError = retryError?.response?.data?.error || retryError?.message || lastError;
-            }
-        }
-
-        // Build a helpful error message
-        let helpfulMessage = `Could not download this video: ${lastError}`;
-        if (lastError.includes('timed out') || lastError.includes('timeout')) {
-            helpfulMessage += '\n\nThe server took too long. The video might be too long or YouTube is slow right now.';
-        } else if (lastError.includes('blocked') || lastError.includes('403')) {
-            helpfulMessage += '\n\nYouTube is blocking this download. Try uploading the video file instead.';
-        } else if (lastError.includes('not found') || lastError.includes('404')) {
-            helpfulMessage += '\n\nThis video might be private or deleted.';
-        }
-
-        throw new Error(helpfulMessage);
+/**
+ * Cleanup: Delete video from IndexedDB when done processing
+ */
+export const cleanupVideo = async (videoId) => {
+    if (videoId) {
+        await deleteVideo(videoId);
+        console.log(`[Client] Cleaned up video ${videoId} from disk`);
     }
 };
 
