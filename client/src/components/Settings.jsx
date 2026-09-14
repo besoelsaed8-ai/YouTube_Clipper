@@ -1,6 +1,21 @@
-import React, { useState } from 'react';
-import { Clock, Crop, ArrowRight, Play, FolderOpen, ArrowLeft, Check, Video, Gem, Sparkles, Zap, ScanFace } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Clock, Crop, ArrowRight, Play, FolderOpen, ArrowLeft, Check, Video, Gem, Sparkles, Zap, ScanFace, Download, Subtitles, Globe } from 'lucide-react';
 import EffectsEditor from './EffectsEditor';
+import Templates, { getTemplateSettings } from './Templates';
+import WatermarkEditor from './WatermarkEditor';
+
+const LANGUAGES = [
+    { code: 'ar-SA', name: 'العربية', flag: '🇸🇦' },
+    { code: 'en-US', name: 'English', flag: '🇺🇸' },
+    { code: 'es-ES', name: 'Español', flag: '🇪🇸' },
+    { code: 'fr-FR', name: 'Français', flag: '🇫🇷' },
+    { code: 'de-DE', name: 'Deutsch', flag: '🇩🇪' },
+    { code: 'tr-TR', name: 'Türkçe', flag: '🇹🇷' },
+    { code: 'hi-IN', name: 'हिन्दी', flag: '🇮🇳' },
+    { code: 'ja-JP', name: '日本語', flag: '🇯🇵' },
+    { code: 'ko-KR', name: '한국어', flag: '🇰🇷' },
+    { code: 'pt-BR', name: 'Português', flag: '🇧🇷' },
+];
 
 export default function Settings({ videoInfo, onStartProcessing, onBack }) {
     const [duration, setDuration] = useState(30);
@@ -10,6 +25,22 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
     const [aiMode, setAiMode] = useState(false);
     const [faceTrack, setFaceTrack] = useState(true);
     const [effects, setEffects] = useState({ color: 'none', zoom: 'none', speed: 'none' });
+    const [selectedTemplate, setSelectedTemplate] = useState(null);
+    const [watermark, setWatermark] = useState({ text: '', fontSize: 'medium', color: 'white', position: 'bottom-center', background: true });
+    const [subtitles, setSubtitles] = useState(true);
+    const [subtitleLang, setSubtitleLang] = useState('ar-SA');
+
+    // Apply template settings when a template is selected
+    useEffect(() => {
+        if (selectedTemplate) {
+            const templateSettings = getTemplateSettings(selectedTemplate);
+            if (templateSettings) {
+                setDuration(templateSettings.duration);
+                setCrop(templateSettings.crop);
+                setEffects(templateSettings.effects);
+            }
+        }
+    }, [selectedTemplate]);
 
     const qualities = [
         { value: 'best', label: 'Best', desc: 'Highest available' },
@@ -66,32 +97,18 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                     </div>
                 </div>
 
+                {/* Templates */}
+                <Templates selectedTemplate={selectedTemplate} onSelect={setSelectedTemplate} />
+
                 {/* Settings */}
                 <div className="space-y-6">
-                    {/* Output dir */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
-                            <FolderOpen className="w-4 h-4" /> Save To (Server Path)
-                        </label>
-                        <input
-                            type="text"
-                            value={outputDir}
-                            onChange={(e) => setOutputDir(e.target.value)}
-                            placeholder="Default: server output folder"
-                            className="input-field w-full rounded-xl"
-                        />
-                        <p className="text-[11px] text-slate-600 mt-2 px-1">
-                            Leave empty for default location
-                        </p>
-                    </div>
-
                     {/* Clip duration */}
                     <div>
                         <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
                             <Clock className="w-4 h-4" /> Clip Duration
                         </label>
-                        <div className="grid grid-cols-3 gap-3">
-                            {[30, 45, 60].map((d) => (
+                        <div className="grid grid-cols-4 gap-3">
+                            {[15, 30, 45, 60].map((d) => (
                                 <button
                                     key={d}
                                     onClick={() => setDuration(d)}
@@ -106,6 +123,64 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Auto-Subtitles Toggle */}
+                    <div>
+                        <button
+                            onClick={() => setSubtitles(!subtitles)}
+                            className={`w-full p-4 rounded-2xl border transition-all duration-300 flex items-center justify-between group ${
+                                subtitles
+                                    ? 'border-cyan-500/40 bg-gradient-to-r from-cyan-500/10 to-blue-500/10'
+                                    : 'border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/50'
+                            }`}
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                                    subtitles ? 'bg-cyan-500/20 shadow-inner' : 'bg-slate-800'
+                                }`}>
+                                    <Subtitles className={`w-6 h-6 ${subtitles ? 'text-cyan-400' : 'text-slate-500'}`} />
+                                </div>
+                                <div className="text-left">
+                                    <div className={`font-semibold text-base ${subtitles ? 'text-cyan-300' : 'text-slate-300'} transition-colors`}>
+                                        Auto Subtitles
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-0.5">
+                                        {subtitles ? 'Auto-transcribe and burn subtitles into video' : 'Add captions directly into the video clips'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                                subtitles ? 'border-cyan-500 bg-cyan-500 shadow-lg shadow-cyan-500/30' : 'border-slate-600'
+                            }`}>
+                                {subtitles && <Check className="w-3.5 h-3.5 text-white" />}
+                            </div>
+                        </button>
+
+                        {/* Language selector */}
+                        {subtitles && (
+                            <div className="mt-3 bg-cyan-500/5 border border-cyan-500/15 rounded-xl p-3 animate-slide-up">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span className="text-[11px] font-medium text-cyan-400">Subtitle Language</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {LANGUAGES.map((lang) => (
+                                        <button
+                                            key={lang.code}
+                                            onClick={() => setSubtitleLang(lang.code)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                                                subtitleLang === lang.code
+                                                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-300'
+                                                    : 'bg-slate-800/40 border-slate-700/30 text-slate-500 hover:text-slate-300'
+                                            }`}
+                                        >
+                                            {lang.flag} {lang.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* AI Mode Toggle */}
@@ -141,23 +216,7 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                         </button>
                     </div>
 
-                    {/* AI Mode info */}
-                    {aiMode && (
-                        <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-2 animate-slide-up">
-                            <div className="flex items-center gap-2 text-sm font-medium text-purple-300">
-                                <Zap className="w-4 h-4" />
-                                AI Mode Active
-                            </div>
-                            <ul className="text-xs text-slate-400 space-y-1.5 ml-6">
-                                <li>• Scene detection finds natural cuts and transitions</li>
-                                <li>• Audio energy analysis highlights exciting moments</li>
-                                <li>• Top {Math.min(10, Math.floor(videoInfo.duration / duration))} clips ranked by engagement score</li>
-                                <li>• Add captions to each clip for social media</li>
-                            </ul>
-                        </div>
-                    )}
-
-                    {/* Face Tracking Toggle (only when crop is enabled) */}
+                    {/* Face Tracking Toggle */}
                     {crop && (
                         <div>
                             <button
@@ -189,16 +248,10 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                                     {faceTrack && <Check className="w-3.5 h-3.5 text-white" />}
                                 </div>
                             </button>
-
-                            {faceTrack && (
-                                <div className="mt-2 bg-green-500/5 border border-green-500/15 rounded-xl p-3 text-xs text-green-300/70">
-                                    <span className="font-medium">How it works:</span> The app analyzes your video and detects faces. The 9:16 crop automatically follows the person instead of staying in the center. Free — runs in your browser!
-                                </div>
-                            )}
                         </div>
                     )}
 
-                    {/* Crop format (disabled in AI mode) */}
+                    {/* Crop format */}
                     <div className={aiMode ? 'opacity-50 pointer-events-none' : ''}>
                         <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
                             <Crop className="w-4 h-4" /> Output Format
@@ -243,37 +296,37 @@ export default function Settings({ videoInfo, onStartProcessing, onBack }) {
                 </div>
 
                 {/* Quality selector */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
-                            <Gem className="w-4 h-4" /> Video Quality
-                        </label>
-                        <div className="grid grid-cols-5 gap-2">
-                            {qualities.map((q) => (
-                                <button
-                                    key={q.value}
-                                    onClick={() => setQuality(q.value)}
-                                    className={`py-3 px-2 rounded-xl font-semibold transition-all duration-300 border text-center ${
-                                        quality === q.value
-                                            ? 'bg-gradient-to-br from-indigo-600 to-purple-600 text-white border-indigo-500/50 shadow-lg shadow-indigo-500/20'
-                                            : 'bg-slate-800/40 text-slate-400 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600 hover:text-slate-300'
-                                    }`}
-                                >
-                                    <div className="text-sm font-bold">{q.label}</div>
-                                    <div className="text-[10px] opacity-60 mt-0.5">{q.desc}</div>
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-[11px] text-slate-600 mt-2 px-1">
-                            {quality === 'best' ? 'Downloads the highest quality available from YouTube' : `Caps download at ${qualities.find(q => q.value === quality)?.label || quality} resolution`}
-                        </p>
+                <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+                        <Gem className="w-4 h-4" /> Video Quality
+                    </label>
+                    <div className="grid grid-cols-5 gap-2">
+                        {qualities.map((q) => (
+                            <button
+                                key={q.value}
+                                onClick={() => setQuality(q.value)}
+                                className={`py-3 px-2 rounded-xl font-semibold transition-all duration-300 border text-center ${
+                                    quality === q.value
+                                        ? 'bg-gradient-to-br from-indigo-600 to-purple-600 text-white border-indigo-500/50 shadow-lg shadow-indigo-500/20'
+                                        : 'bg-slate-800/40 text-slate-400 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600 hover:text-slate-300'
+                                }`}
+                            >
+                                <div className="text-sm font-bold">{q.label}</div>
+                                <div className="text-[10px] opacity-60 mt-0.5">{q.desc}</div>
+                            </button>
+                        ))}
                     </div>
+                </div>
 
                 {/* Effects Editor */}
                 <EffectsEditor effects={effects} onChange={setEffects} />
 
+                {/* Watermark Editor */}
+                <WatermarkEditor watermark={watermark} onChange={setWatermark} />
+
                 {/* Start button */}
                 <button
-                    onClick={() => onStartProcessing(duration, crop, outputDir, videoInfo.shortsOnly, quality, aiMode, faceTrack && crop, effects)}
+                    onClick={() => onStartProcessing(duration, crop, outputDir, videoInfo.shortsOnly, quality, aiMode, faceTrack && crop, { ...effects, watermark }, subtitles, subtitleLang)}
                     className={`w-full flex items-center justify-center gap-3 py-4 text-base rounded-2xl transition-all duration-300 ${
                         aiMode
                             ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-500/25'

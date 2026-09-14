@@ -1,14 +1,27 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Download, RefreshCw, Play, Sparkles, Check, Square, CheckSquare, DownloadCloud } from 'lucide-react';
+import { Download, RefreshCw, Play, Sparkles, Check, Square, CheckSquare, DownloadCloud, Share2, Scissors, Maximize2, TrendingUp, Heart, Flame, ExternalLink } from 'lucide-react';
 import AdBanner from './AdBanner';
+import EngagementScore from './EngagementScore';
+import ClipListSidebar from './ClipListSidebar';
+import TranscriptView from './TranscriptView';
+import { generateClipTitle, calculateViralScore } from '../api/clipAnalyzer';
 
-export default function ClipGrid({ clips, onDownloadClip, onReset }) {
+const SOCIAL_PLATFORMS = [
+    { id: 'tiktok', name: 'TikTok', url: 'https://www.tiktok.com/upload', color: 'bg-black hover:bg-gray-800', icon: '🎵' },
+    { id: 'youtube', name: 'YouTube Shorts', url: 'https://studio.youtube.com/channel/UC/videos/upload?flow=shorts', color: 'bg-red-600 hover:bg-red-500', icon: '📺' },
+    { id: 'instagram', name: 'Instagram Reels', url: 'https://www.instagram.com/reels/', color: 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400', icon: '📸' },
+    { id: 'facebook', name: 'Facebook', url: 'https://www.facebook.com/reels/', color: 'bg-blue-600 hover:bg-blue-500', icon: '👤' },
+];
+
+export default function ClipGrid({ clips, onDownloadClip, onReset, totalDuration = 300 }) {
     const [selected, setSelected] = useState(new Set());
+    const [selectedClipIndex, setSelectedClipIndex] = useState(0);
+    const [showShareMenu, setShowShareMenu] = useState(false);
 
     // Create object URLs for client-side clips (Uint8Array)
     const clipUrls = useMemo(() => {
         return clips.map((clip) => {
-            if (clip.url) return clip.url; // Server URL
+            if (clip.url) return clip.url;
             if (clip.data instanceof Uint8Array) {
                 const blob = new Blob([clip.data], { type: 'video/mp4' });
                 return URL.createObjectURL(blob);
@@ -25,6 +38,15 @@ export default function ClipGrid({ clips, onDownloadClip, onReset }) {
             });
         };
     }, [clipUrls]);
+
+    // Generate AI titles and viral scores for each clip
+    const clipAnalysis = useMemo(() => {
+        return clips.map((clip, index) => {
+            const title = generateClipTitle(clip, index);
+            const { score, factors, emotion, category } = calculateViralScore(clip, totalDuration);
+            return { title, score, factors, emotion, category };
+        });
+    }, [clips, totalDuration]);
 
     const toggleSelect = useCallback((index) => {
         setSelected(prev => {
@@ -54,10 +76,56 @@ export default function ClipGrid({ clips, onDownloadClip, onReset }) {
         });
     }, [selected, clips, onDownloadClip]);
 
+    const handleShare = useCallback(async (platform) => {
+        const clip = clips[selectedClipIndex];
+        if (!clip) return;
+
+        // Download the clip first
+        const blob = new Blob([clip.data], { type: 'video/mp4' });
+        const file = new File([blob], `${clipAnalysis[selectedClipIndex]?.title || 'clip'}.mp4`, { type: 'video/mp4' });
+
+        // Try Web Share API first
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: clipAnalysis[selectedClipIndex]?.title || 'My Clip',
+                });
+                setShowShareMenu(false);
+                return;
+            } catch (e) {
+                // User cancelled or error
+            }
+        }
+
+        // Fallback: download and open platform
+        onDownloadClip(clip);
+        window.open(platform.url, '_blank');
+        setShowShareMenu(false);
+    }, [clips, selectedClipIndex, clipAnalysis, onDownloadClip]);
+
     const allSelected = selected.size === clips.length;
+    const currentClip = clips[selectedClipIndex];
+    const currentAnalysis = clipAnalysis[selectedClipIndex];
+
+    const getEmotionIcon = (emotion) => {
+        const icons = {
+            joy: '😊',
+            anger: '😡',
+            sadness: '😢',
+            excitement: '🔥',
+            love: '❤️',
+            fear: '😨',
+            surprise: '😲',
+            wisdom: '💡',
+            motivation: '💪',
+            default: '⭐',
+        };
+        return icons[emotion] || icons.default;
+    };
 
     return (
-        <div className="w-full max-w-6xl mx-auto space-y-8 pb-12 animate-slide-up">
+        <div className="w-full max-w-7xl mx-auto space-y-6 pb-12 animate-slide-up">
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="space-y-1">
@@ -66,12 +134,12 @@ export default function ClipGrid({ clips, onDownloadClip, onReset }) {
                             <Sparkles className="w-5 h-5 text-indigo-400" />
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold text-slate-100">Your Clips</h2>
+                            <h2 className="text-2xl font-bold text-slate-100">مقاطعك جاهزة</h2>
                             <p className="text-slate-500 text-sm">
-                                {clips.length} clips ready
+                                {clips.length} مقاطع جاهزة — تم تحليلها بالذكاء الاصطناعي
                                 {selected.size > 0 && (
                                     <span className="text-indigo-400 ml-2">
-                                        · {selected.size} selected
+                                        · {selected.size} محدد
                                     </span>
                                 )}
                             </p>
@@ -80,7 +148,6 @@ export default function ClipGrid({ clips, onDownloadClip, onReset }) {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {/* Select all */}
                     <button
                         onClick={toggleAll}
                         className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/60 hover:bg-slate-800 px-4 py-2.5 rounded-xl transition-all duration-300 font-medium border border-slate-700/50 hover:border-slate-600 text-sm"
@@ -90,116 +157,206 @@ export default function ClipGrid({ clips, onDownloadClip, onReset }) {
                         ) : (
                             <Square className="w-4 h-4" />
                         )}
-                        <span>{allSelected ? 'Deselect' : 'Select All'}</span>
+                        <span>{allSelected ? 'إلغاء التحديد' : 'تحديد الكل'}</span>
                     </button>
 
-                    {/* Download selected */}
                     {selected.size > 0 && (
                         <button
                             onClick={downloadSelected}
                             className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-5 py-2.5 rounded-xl transition-all duration-300 font-semibold text-sm shadow-lg shadow-indigo-500/25 active:scale-95"
                         >
                             <DownloadCloud className="w-4 h-4" />
-                            <span>Download ({selected.size})</span>
+                            <span>تحميل ({selected.size})</span>
                         </button>
                     )}
 
-                    {/* Reset */}
                     <button
                         onClick={onReset}
                         className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/60 hover:bg-slate-800 px-4 py-2.5 rounded-xl transition-all duration-300 font-medium border border-slate-700/50 hover:border-slate-600 group"
                     >
                         <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
-                        <span className="hidden sm:inline">New Video</span>
+                        <span className="hidden sm:inline">فيديو جديد</span>
                     </button>
                 </div>
             </div>
 
-            {/* Content: Clips + Sidebar Ad */}
+            {/* Main layout: Sidebar + Clip Preview + Details */}
             <div className="flex flex-col lg:flex-row gap-6">
-                {/* Clips grid */}
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-                    {clips.map((clip, index) => {
-                        const clipUrl = clipUrls[index];
-                        const isSelected = selected.has(index);
-                        return (
-                            <div
-                                key={index}
-                                onClick={() => toggleSelect(index)}
-                                className={`group relative bg-slate-900/60 rounded-2xl overflow-hidden border transition-all duration-300 cursor-pointer hover:-translate-y-1 ${
-                                    isSelected
-                                        ? 'border-indigo-500/60 shadow-lg shadow-indigo-500/15 ring-1 ring-indigo-500/30'
-                                        : 'border-slate-800/50 hover:border-indigo-500/30 hover:shadow-2xl hover:shadow-indigo-500/10'
-                                }`}
-                            >
-                                {/* Video preview */}
-                                <div className="aspect-[9/16] bg-slate-950 relative overflow-hidden">
-                                    <video
-                                        src={clipUrl}
-                                        className="w-full h-full object-cover"
-                                        preload="metadata"
-                                        onMouseEnter={(e) => e.target.play()}
-                                        onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
-                                    />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                                    {/* Selection checkbox */}
-                                    <div className={`absolute top-3 left-3 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ${
-                                        isSelected
-                                            ? 'bg-indigo-500 shadow-lg shadow-indigo-500/40'
-                                            : 'bg-black/50 backdrop-blur-sm border border-white/20 opacity-0 group-hover:opacity-100'
-                                    }`}>
-                                        {isSelected ? (
-                                            <Check className="w-4 h-4 text-white" strokeWidth={3} />
-                                        ) : (
-                                            <Square className="w-3.5 h-3.5 text-white/70" />
-                                        )}
-                                    </div>
-
-                                    {/* Clip number */}
-                                    <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-xs font-semibold text-white/90 border border-white/10">
-                                        #{index + 1}
-                                    </div>
-
-                                    {/* Play indicator */}
-                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                                        <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/30">
-                                            <Play className="w-5 h-5 text-white ml-0.5" />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Footer */}
-                                <div className="p-3.5 bg-slate-900/80 border-t border-slate-800/50">
-                                    <div className="flex justify-between items-center">
-                                        <span className={`text-sm font-medium transition-colors ${
-                                            isSelected ? 'text-indigo-300' : 'text-slate-400 group-hover:text-indigo-300'
-                                        }`}>
-                                            Clip #{index + 1}
-                                        </span>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (onDownloadClip) onDownloadClip(clip);
-                                            }}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold rounded-lg transition-all shadow-md shadow-indigo-500/20 active:scale-95"
-                                        >
-                                            <Download className="w-3.5 h-3.5" />
-                                            <span>Save</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
+                {/* Left Sidebar — Clip List with AI Titles */}
+                <div className="lg:w-80 flex-shrink-0">
+                    <ClipListSidebar
+                        clips={clips}
+                        clipAnalysis={clipAnalysis}
+                        selectedIndex={selectedClipIndex}
+                        onSelectClip={setSelectedClipIndex}
+                    />
                 </div>
 
-                {/* Sidebar Ad */}
-                <div className="hidden lg:flex flex-col items-center gap-4 sticky top-8 self-start w-[300px] flex-shrink-0">
-                    <AdBanner size="sidebar" />
-                    <AdBanner size="inline" />
+                {/* Center — Clip Preview */}
+                <div className="flex-1 min-w-0">
+                    <div className="bg-slate-900/60 rounded-2xl overflow-hidden border border-slate-800/50">
+                        {/* Clip number + AI title */}
+                        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/50">
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="checkbox"
+                                    checked={selected.has(selectedClipIndex)}
+                                    onChange={() => toggleSelect(selectedClipIndex)}
+                                    className="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/20"
+                                />
+                                <span className="text-sm font-medium text-slate-300">
+                                    {selectedClipIndex + 1}. {currentAnalysis?.title || `مقطع ${selectedClipIndex + 1}`}
+                                </span>
+                                <span className="text-lg">{getEmotionIcon(currentAnalysis?.emotion)}</span>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-2 relative">
+                                {/* Share button with dropdown */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setShowShareMenu(!showShareMenu)}
+                                        className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                        title="مشاركة"
+                                    >
+                                        <Share2 className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Share dropdown */}
+                                    {showShareMenu && (
+                                        <div className="absolute top-full right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-slide-up">
+                                            <div className="p-2 border-b border-slate-700">
+                                                <p className="text-xs text-slate-400 px-2">شارك على</p>
+                                            </div>
+                                            {SOCIAL_PLATFORMS.map((platform) => (
+                                                <button
+                                                    key={platform.id}
+                                                    onClick={() => handleShare(platform)}
+                                                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-colors text-right"
+                                                >
+                                                    <span className="text-lg">{platform.icon}</span>
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium text-slate-200">{platform.name}</p>
+                                                        <p className="text-[10px] text-slate-500">حمّل وارفع</p>
+                                                    </div>
+                                                    <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button
+                                    onClick={() => currentClip && onDownloadClip(currentClip)}
+                                    className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                    title="تحميل"
+                                >
+                                    <Download className="w-4 h-4" />
+                                </button>
+                                <button className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors" title="قص">
+                                    <Scissors className="w-4 h-4" />
+                                </button>
+                                <button className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors" title="ملء الشاشة">
+                                    <Maximize2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Video player */}
+                        <div className="aspect-[9/16] max-h-[500px] mx-auto bg-black relative">
+                            {clipUrls[selectedClipIndex] && (
+                                <video
+                                    key={selectedClipIndex}
+                                    src={clipUrls[selectedClipIndex]}
+                                    className="w-full h-full object-contain"
+                                    controls
+                                    autoPlay
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Sidebar — Score + Transcript + Viral Factors */}
+                <div className="lg:w-80 flex-shrink-0 space-y-4">
+                    {/* Engagement Score */}
+                    <EngagementScore score={currentAnalysis?.score || 75} />
+
+                    {/* Viral Factors */}
+                    {currentAnalysis?.factors && (
+                        <div className="bg-slate-900/40 border border-slate-700/30 rounded-xl p-4 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-cyan-400" />
+                                <span className="text-sm font-medium text-slate-300">عوامل الانتشار</span>
+                            </div>
+                            <div className="space-y-2">
+                                <FactorBar label="الطاقة" value={currentAnalysis.factors.energy} max={20} color="bg-red-400" />
+                                <FactorBar label="التفاعل" value={currentAnalysis.factors.engagement} max={25} color="bg-blue-400" />
+                                <FactorBar label="المدة" value={currentAnalysis.factors.duration} max={15} color="bg-green-400" />
+                                <FactorBar label="الموقع" value={currentAnalysis.factors.position} max={10} color="bg-yellow-400" />
+                                <FactorBar label="الحركة" value={currentAnalysis.factors.dynamicity} max={15} color="bg-purple-400" />
+                                <FactorBar label="المشاعر" value={currentAnalysis.factors.emotion} max={15} color="bg-pink-400" />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Social Share Quick Buttons */}
+                    <div className="bg-slate-900/40 border border-slate-700/30 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                            <Share2 className="w-4 h-4 text-pink-400" />
+                            <span className="text-sm font-medium text-slate-300">نشر سريع</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {SOCIAL_PLATFORMS.map((platform) => (
+                                <button
+                                    key={platform.id}
+                                    onClick={() => handleShare(platform)}
+                                    className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-white text-xs font-medium transition-all ${platform.color}`}
+                                >
+                                    <span>{platform.icon}</span>
+                                    <span>{platform.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Transcript */}
+                    <TranscriptView clip={currentClip} clipIndex={selectedClipIndex} />
+
+                    {/* Download button */}
+                    <button
+                        onClick={() => currentClip && onDownloadClip(currentClip)}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 rounded-xl transition-all duration-300 font-semibold shadow-lg shadow-indigo-500/25 active:scale-95"
+                    >
+                        <Download className="w-5 h-5" />
+                        <span>تحميل هذا المقطع</span>
+                    </button>
                 </div>
             </div>
+
+            {/* Ad Banner */}
+            <div className="flex justify-center">
+                <AdBanner size="banner" />
+            </div>
+        </div>
+    );
+}
+
+/**
+ * FactorBar — visual bar showing a scoring factor
+ */
+function FactorBar({ label, value, max, color }) {
+    const percentage = Math.min(100, (value / max) * 100);
+    return (
+        <div className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-500 w-12 text-right">{label}</span>
+            <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                    className={`h-full ${color} rounded-full transition-all duration-500`}
+                    style={{ width: `${percentage}%` }}
+                />
+            </div>
+            <span className="text-[10px] text-slate-600 w-6">{value}</span>
         </div>
     );
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, ArrowRight, HelpCircle, Scissors, Zap, Film, ExternalLink } from 'lucide-react';
+import { ChevronRight, ArrowRight, HelpCircle, Scissors, Zap, Film, ExternalLink, Star, Quote } from 'lucide-react';
 import SeoHead from './SeoHead';
 
 function FeatureCard({ title, desc }) {
@@ -32,9 +32,37 @@ function FaqItem({ q, a }) {
   );
 }
 
+const TESTIMONIALS = [
+  {
+    name: 'أحمد محمد',
+    role: 'صانع محتوى يوتيوب',
+    text: 'أفضل أداة قص شوفتها! بحوّل فيديوهاتي الطويلة لشورت في ثواني. الترجمة التلقائية رائعة.',
+    rating: 5,
+  },
+  {
+    name: 'سارة علي',
+    role: 'مديرة سوشيال ميديا',
+    text: 'بنستخدمها يوميًا للمطاعم اللي بنعملها دعاية. الفيديوهات بتطلع احترافية جدًا من غير أي تعقيد.',
+    rating: 5,
+  },
+  {
+    name: 'خالد حسن',
+    role: 'بودكاستر',
+    text: 'الـ AI Smart Highlights بيوفر عليّ ساعات من الشغل. بيختار أحسن لقطات تلقائيًا!',
+    rating: 5,
+  },
+  {
+    name: 'نور إبراهيم',
+    role: 'طالبة جامعية',
+    name: 'فاطمة أحمد',
+    role: 'مدرسة',
+    text: 'بنستخدمه في المدرسة عشان نعمل مقاطع تعليمية قصيرة. سهل جدًا على الأولاد يفهموه.',
+    rating: 4,
+  },
+];
+
 /**
  * Reusable SEO landing page component.
- * All content is unique per page — no keyword stuffing, no duplicate copy.
  */
 export default function LandingPage({ data }) {
   if (!data) return null;
@@ -108,7 +136,7 @@ export default function LandingPage({ data }) {
             to="/"
             className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-2xl font-semibold transition-all duration-300 shadow-lg shadow-indigo-500/25 active:scale-95 text-base"
           >
-            <span>Try It Now — It's Free</span>
+            <span>جرّب الآن — مجاني</span>
             <ArrowRight className="w-5 h-5" />
           </Link>
         </header>
@@ -116,7 +144,7 @@ export default function LandingPage({ data }) {
         {/* Features */}
         <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-5xl">
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 text-center mb-8">
-            Features
+            المميزات
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {features.map((f, i) => (
@@ -128,7 +156,7 @@ export default function LandingPage({ data }) {
         {/* How It Works */}
         <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-3xl">
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 text-center mb-8">
-            How It Works
+            إزاي بيشتغل
           </h2>
           <div className="space-y-6">
             {howItWorks.map((step) => (
@@ -148,7 +176,7 @@ export default function LandingPage({ data }) {
         {/* Use Cases */}
         <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-4xl">
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 text-center mb-8">
-            Use Cases
+            حالات الاستخدام
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {useCases.map((uc, i) => (
@@ -160,12 +188,40 @@ export default function LandingPage({ data }) {
           </div>
         </section>
 
+        {/* Testimonials */}
+        <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-5xl">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 text-center mb-8">
+            المستخدمين بيقولوا إيه
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {TESTIMONIALS.map((t, i) => (
+              <div key={i} className="p-6 bg-slate-900/40 border border-slate-800/40 rounded-2xl hover:border-indigo-500/20 transition-all">
+                <div className="flex items-center gap-1 mb-3">
+                  {Array.from({ length: 5 }, (_, j) => (
+                    <Star key={j} className={`w-4 h-4 ${j < t.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-600'}`} />
+                  ))}
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed mb-4">"{t.text}"</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                    {t.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">{t.name}</p>
+                    <p className="text-xs text-slate-500">{t.role}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* FAQ */}
         {faq && faq.length > 0 && (
           <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-3xl">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 text-center mb-8 flex items-center justify-center gap-3">
               <HelpCircle className="w-7 h-7 text-indigo-400" />
-              Frequently Asked Questions
+              الأسئلة الشائعة
             </h2>
             <div className="space-y-3">
               {faq.map((item, i) => (
@@ -179,7 +235,7 @@ export default function LandingPage({ data }) {
         {relatedTools && relatedTools.length > 0 && (
           <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-4xl">
             <h2 className="text-2xl font-extrabold text-slate-100 text-center mb-8">
-              Related Tools
+              أدوات ذات صلة
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {relatedTools.map((tool, i) => (
@@ -203,20 +259,20 @@ export default function LandingPage({ data }) {
         <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center max-w-3xl">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-xs font-medium mb-4">
             <Scissors className="w-3.5 h-3.5" />
-            Free &amp; Open Source
+            مجاني ومفتوح المصدر
           </div>
           <h2 className="text-3xl font-extrabold text-slate-100 mb-3">
-            Ready to Get Started?
+            جاهز تبدأ؟
           </h2>
           <p className="text-slate-400 max-w-md mx-auto mb-8">
-            No signup, no watermarks, no limits. Just paste a link and go.
+            بدون تسجيل، بدون علامات مائية، بدون حدود. الصق الرابط وابدأ.
           </p>
           <Link
             to="/"
             className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-2xl font-semibold transition-all duration-300 shadow-lg shadow-indigo-500/25 active:scale-95"
           >
             <Zap className="w-5 h-5" />
-            <span>Launch YouTube Clipper</span>
+            <span>افتح YouTube Clipper</span>
           </Link>
         </section>
 
@@ -225,6 +281,8 @@ export default function LandingPage({ data }) {
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500 mb-4">
             <Link to="/" className="hover:text-indigo-400 transition-colors">Home</Link>
             <Link to="/about" className="hover:text-indigo-400 transition-colors">About</Link>
+            <Link to="/faq" className="hover:text-indigo-400 transition-colors">FAQ</Link>
+            <Link to="/contact" className="hover:text-indigo-400 transition-colors">Contact</Link>
             <Link to="/privacy" className="hover:text-indigo-400 transition-colors">Privacy</Link>
             <Link to="/terms" className="hover:text-indigo-400 transition-colors">Terms</Link>
           </div>

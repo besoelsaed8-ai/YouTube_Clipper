@@ -1,15 +1,17 @@
 /**
  * Client-side video processor using ffmpeg.wasm
  * All processing happens in the browser — no server load!
+ * Now supports server-side Whisper transcription for subtitles!
  */
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import api from './api';
 
 let ffmpeg = null;
 let ffmpegLoadPromise = null;
 
 /**
- * Initialize FFmpeg WASM (loads once, safe against concurrent callers)
+ * Initialize FFmpeg WASM
  */
 export async function initFFmpeg(onLog) {
     if (ffmpeg && ffmpeg.loaded) return ffmpeg;
@@ -39,60 +41,43 @@ export async function initFFmpeg(onLog) {
 }
 
 /**
- * Execute FFmpeg command with timeout — prevents infinite hangs
+ * Execute FFmpeg command with timeout
  */
 function execWithTimeout(ff, args, timeoutMs = 120000) {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-            reject(new Error(`FFmpeg command timed out after ${Math.round(timeoutMs / 1000)}s. The video may be too complex or too long.`));
+            reject(new Error(`FFmpeg command timed out after ${Math.round(timeoutMs / 1000)}s`));
         }, timeoutMs);
 
         ff.exec(args)
-            .then((result) => {
-                clearTimeout(timer);
-                resolve(result);
-            })
-            .catch((err) => {
-                clearTimeout(timer);
-                reject(err);
-            });
+            .then((result) => { clearTimeout(timer); resolve(result); })
+            .catch((err) => { clearTimeout(timer); reject(err); });
     });
 }
 
 /**
- * Get video duration — parses the Duration header from FFmpeg probe logs
+ * Get video duration from FFmpeg logs
  */
 function getVideoDuration(ff, inputName, onLog) {
     return new Promise((resolve) => {
         let duration = 0;
-
         const handler = ({ message }) => {
             const match = message.match(/Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d+)/);
             if (match && duration === 0) {
-                const h = parseInt(match[1]);
-                const m = parseInt(match[2]);
-                const s = parseInt(match[3]);
-                const frac = parseFloat('0.' + match[4]);
-                duration = h * 3600 + m * 60 + s + frac;
+                duration = parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]) + parseFloat('0.' + match[4]);
                 ff.off('log', handler);
                 if (onLog) onLog(`Video duration: ${Math.round(duration)}s`);
                 resolve(duration);
             }
         };
-
         ff.on('log', handler);
-
         ff.exec(['-i', inputName, '-f', 'null', '-']).catch(() => {});
-
-        setTimeout(() => {
-            ff.off('log', handler);
-            resolve(duration);
-        }, 15000);
+        setTimeout(() => { ff.off('log', handler); resolve(duration); }, 15000);
     });
 }
 
 /**
- * Get video dimensions from FFmpeg log output
+ * Get video dimensions
  */
 export function readVideoDimensions(ff, inputName, timeoutMs = 15000) {
     return new Promise((resolve) => {
@@ -106,23 +91,15 @@ export function readVideoDimensions(ff, inputName, timeoutMs = 15000) {
             }
         };
         ff.on('log', handler);
-        const timer = setTimeout(() => {
-            ff.off('log', handler);
-            resolve({ width, height });
-        }, timeoutMs);
-        ff.exec(['-i', inputName, '-frames:v', '1', '-f', 'null', '-'])
-            .catch(() => {})
-            .finally(() => {
-                clearTimeout(timer);
-                ff.off('log', handler);
-                resolve({ width, height });
-            });
+        const timer = setTimeout(() => { ff.off('log', handler); resolve({ width, height }); }, timeoutMs);
+        ff.exec(['-i', inputName, '-frames:v', '1', '-f', 'null', '-']).catch(() => {}).finally(() => {
+            clearTimeout(timer); ff.off('log', handler); resolve({ width, height });
+        });
     });
 }
 
 /**
- * Start a fake-progress timer that smoothly advances the progress bar
- * while FFmpeg is actually encoding. Returns a stop function.
+ * Progress timer
  */
 function startProgressTimer(onProgress, fromPercent, toPercent, durationMs) {
     const startTime = Date.now();
@@ -130,58 +107,121 @@ function startProgressTimer(onProgress, fromPercent, toPercent, durationMs) {
     const timer = setInterval(() => {
         const elapsed = Date.now() - startTime;
         const ratio = Math.min(1, elapsed / durationMs);
-        // Ease-out curve: fast start, slow end
         const eased = 1 - Math.pow(1 - ratio, 3);
-        const current = Math.round(fromPercent + range * eased);
-        if (onProgress) onProgress(Math.min(toPercent, current));
+        if (onProgress) onProgress(Math.min(toPercent, Math.round(fromPercent + range * eased)));
     }, 300);
-
-    return () => {
-        clearInterval(timer);
-        if (onProgress) onProgress(toPercent);
-    };
+    return () => { clearInterval(timer); if (onProgress) onProgress(toPercent); };
 }
 
 /**
- * Process video: split into clips and optionally crop to 9:16
+ * Server-side transcription using Whisper
+ * Uploads video to server, returns timestamped segments
+ */
+async function serverTranscribe(videoBlob, language = 'ar', onLog) {
+    try {
+        if (onLog) onLog('Uploading video for transcription...');
+
+        const formData = new FormData();
+        formData.append('video', videoBlob, 'video.mp4');
+        if (language) formData.append('language', language);
+
+        const response = await api.post('/transcribe', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300000, // 5 minutes
+        });
+
+        if (response.data?.error) {
+            if (onLog) onLog(`Transcription error: ${response.data.error}`);
+            return null;
+        }
+
+        const segments = response.data?.segments || [];
+        if (segments.length > 0) {
+            if (onLog) onLog(`Transcription complete: ${segments.length} segments`);
+            return segments;
+        }
+
+        if (onLog) onLog('No speech detected in video');
+        return null;
+
+    } catch (e) {
+        if (onLog) onLog(`Transcription failed: ${e.message}`);
+        return null;
+    }
+}
+
+/**
+ * Generate subtitle filter string from segments
+ */
+function generateSubtitleFilter(segments, clipStartTime, clipDuration) {
+    if (!segments || segments.length === 0) return '';
+
+    const escapeFFmpeg = (text) => {
+        return text.replace(/'/g, "\\'").replace(/:/g, '\\:').replace(/\\/g, '\\\\').replace(/\n/g, '\\n');
+    };
+
+    const clipSegments = segments.filter(seg => {
+        return seg.start < clipStartTime + clipDuration && seg.end > clipStartTime;
+    });
+
+    if (clipSegments.length === 0) return '';
+
+    const filters = clipSegments.map(seg => {
+        const relStart = Math.max(0, seg.start - clipStartTime);
+        const relEnd = Math.min(clipDuration, seg.end - clipStartTime);
+        const escaped = escapeFFmpeg(seg.text);
+        return `drawtext=text='${escaped}':fontsize=20:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-th-30:enable='between(t,${relStart.toFixed(2)},${relEnd.toFixed(2)})'`;
+    });
+
+    return filters.join(',');
+}
+
+/**
+ * Process video: split into clips with optional subtitles
  */
 export async function processVideoClient(videoFile, options) {
-    const { duration, crop, faceTrack, effects = {}, onProgress, onLog } = options;
+    const { duration, crop, faceTrack, effects = {}, subtitles = false, subtitleLang = 'ar', onProgress, onLog } = options;
 
-    // Guard: ffmpeg.wasm memory limit (~2GB). Anything over ~400MB can OOM.
     const fileSize = videoFile?.size || videoFile?.byteLength || videoFile?.length || 0;
     if (fileSize > 400 * 1024 * 1024) {
-        throw new Error('Video file is too large for browser processing (max ~400MB). Please trim it first or use a lower quality.');
+        throw new Error('Video file is too large for browser processing (max ~400MB)');
     }
 
-    // Step 1: Initialize FFmpeg
+    // Step 1: Init FFmpeg
     let ff;
     try {
         ff = await initFFmpeg(onLog);
     } catch (e) {
-        throw new Error(`Failed to load FFmpeg engine. Please refresh the page and try again. (${e.message})`);
+        throw new Error(`Failed to load FFmpeg: ${e.message}`);
     }
 
-    // Step 2: Write input file
-    if (onLog) onLog('Loading video into FFmpeg...');
+    // Step 2: Write input
+    if (onLog) onLog('Loading video...');
     const inputName = 'input.mp4';
     try {
-        const fileData = await fetchFile(videoFile);
-        await ff.writeFile(inputName, fileData);
+        await ff.writeFile(inputName, await fetchFile(videoFile));
     } catch (e) {
-        throw new Error(`Failed to load video file into FFmpeg. The file may be corrupted. (${e.message})`);
+        throw new Error(`Failed to load video: ${e.message}`);
     }
 
-    // Step 3: Get duration (instant — reads from probe header)
-    if (onProgress) onProgress(5);
+    // Step 3: Server-side transcription
+    let speechSegments = null;
+    if (subtitles) {
+        if (onLog) onLog('Starting server-side transcription (Whisper)...');
+        if (onProgress) onProgress(8);
+        speechSegments = await serverTranscribe(videoFile, subtitleLang?.split('-')[0], onLog);
+    }
+
+    // Step 4: Get duration
+    if (onProgress) onProgress(10);
     const videoDuration = await getVideoDuration(ff, inputName, onLog);
 
     if (videoDuration === 0) {
         await ff.deleteFile(inputName).catch(() => {});
-        throw new Error('Could not determine video duration. The file may be corrupted or unsupported.');
+        throw new Error('Could not determine video duration');
     }
 
-    // Step 4: Calculate clips
+    // Step 5: Calculate clips
     const clipDuration = parseInt(duration);
     const numClips = Math.floor(videoDuration / clipDuration);
 
@@ -190,84 +230,55 @@ export async function processVideoClient(videoFile, options) {
         throw new Error(`Video (${Math.round(videoDuration)}s) is shorter than clip duration (${clipDuration}s)`);
     }
 
-    if (onLog) onLog(`Creating ${numClips} clips of ${clipDuration}s each`);
+    if (onLog) onLog(`Creating ${numClips} clips`);
 
-    // Step 5: Face tracking (if enabled)
+    // Step 6: Face tracking
     let facePositions = null;
     let dimensions = { width: 1920, height: 1080 };
 
     if (crop && faceTrack) {
-        if (onLog) onLog('Analyzing video for face tracking...');
+        if (onLog) onLog('Analyzing for face tracking...');
         try {
-            // Dynamic import to avoid loading faceTracker if not needed
             const { trackVideo } = await import('./faceTracker');
             facePositions = await trackVideo(videoFile, {
-                sampleRate: 2, // Sample every 2 seconds (faster)
-                maxSamples: 60, // Max 60 samples (2 minutes of analysis)
-                onProgress: (p) => {
-                    if (onProgress) onProgress(Math.round(5 + p * 0.15));
-                },
+                sampleRate: 2, maxSamples: 60,
+                onProgress: (p) => { if (onProgress) onProgress(Math.round(10 + p * 0.15)); },
                 onLog,
             });
-            if (onLog) onLog(`Face tracking: found ${facePositions.length} tracked frames`);
         } catch (e) {
-            if (onLog) onLog(`Face tracking failed, using center crop: ${e.message}`);
-            facePositions = null;
+            if (onLog) onLog(`Face tracking failed: ${e.message}`);
         }
     }
 
-    // Read actual input dimensions once
     if (facePositions && facePositions.length > 0) {
-        if (onLog) onLog('Reading video dimensions...');
         dimensions = await readVideoDimensions(ff, inputName);
-        if (!dimensions.width || !dimensions.height) {
-            dimensions = { width: 1920, height: 1080 };
-            if (onLog) onLog('Could not read dimensions, assuming 1920x1080');
-        }
     }
 
-    // Step 6: Generate clips
+    // Step 7: Generate clips
     const clips = [];
-    const baseProgress = facePositions ? 20 : 5;
+    const baseProgress = speechSegments ? 20 : (facePositions ? 20 : 10);
     const progressPerClip = (95 - baseProgress) / numClips;
 
     for (let i = 0; i < numClips; i++) {
         const startTime = i * clipDuration;
         const outputName = `clip_${i + 1}.mp4`;
-        const clipStartProgress = baseProgress + i * progressPerClip;
-        const clipEndProgress = baseProgress + (i + 1) * progressPerClip;
 
         if (onLog) onLog(`Processing clip ${i + 1}/${numClips}...`);
 
-        // Start timer-based progress for this clip
-        const stopTimer = startProgressTimer(onProgress, clipStartProgress, clipEndProgress, clipDuration * 2000);
+        const stopTimer = startProgressTimer(onProgress, baseProgress + i * progressPerClip, baseProgress + (i + 1) * progressPerClip, clipDuration * 2000);
 
-        const args = [
-            '-ss', String(startTime),
-            '-i', inputName,
-            '-t', String(clipDuration),
-        ];
-
-        // Build video filters — keep it simple to avoid FFmpeg hangs
+        const args = ['-ss', String(startTime), '-i', inputName, '-t', String(clipDuration)];
         const videoFilters = [];
 
+        // Crop
         if (crop) {
             if (facePositions && facePositions.length > 0) {
-                const clipPositions = facePositions.filter(
-                    p => p.time >= startTime && p.time < startTime + clipDuration
-                ).map(p => ({
-                    ...p,
-                    time: p.time - startTime,
-                }));
-
+                const clipPositions = facePositions.filter(p => p.time >= startTime && p.time < startTime + clipDuration).map(p => ({ ...p, time: p.time - startTime }));
                 if (clipPositions.length > 0) {
                     try {
-                        // Dynamic import
                         const { generateSmoothFaceCropFilter } = await import('./faceCropFilter');
                         videoFilters.push(generateSmoothFaceCropFilter(clipPositions, dimensions.width, dimensions.height));
-                        if (onLog) onLog(`Using face-tracked crop for clip ${i + 1}`);
                     } catch (e) {
-                        if (onLog) onLog(`Face crop filter failed, using center crop: ${e.message}`);
                         videoFilters.push('crop=ih*9/16:ih:(iw-ih*9/16)/2:0');
                     }
                 } else {
@@ -278,59 +289,42 @@ export async function processVideoClient(videoFile, options) {
             }
         }
 
-        // Apply color effects only (skip zoom — zoompan is too heavy for WASM)
+        // Color effects
         if (effects.color && effects.color !== 'none') {
             try {
                 const { buildEffectsFilter } = await import('./effectsLibrary');
-                const { videoFilter } = buildEffectsFilter({
-                    color: effects.color,
-                    zoom: 'none', // Skip zoom in WASM — too slow
-                    speed: effects.speed || 'none',
-                    duration: clipDuration,
-                });
+                const { videoFilter } = buildEffectsFilter({ color: effects.color, zoom: 'none', speed: effects.speed || 'none', duration: clipDuration });
                 if (videoFilter) videoFilters.push(videoFilter);
-            } catch (e) {
-                if (onLog) onLog(`Effects filter failed: ${e.message}`);
-            }
+            } catch (e) {}
         } else if (effects.speed && effects.speed !== 'none') {
             try {
                 const { buildEffectsFilter } = await import('./effectsLibrary');
-                const { videoFilter, audioFilter } = buildEffectsFilter({
-                    color: 'none',
-                    zoom: 'none',
-                    speed: effects.speed,
-                    duration: clipDuration,
-                });
+                const { videoFilter, audioFilter } = buildEffectsFilter({ color: 'none', zoom: 'none', speed: effects.speed, duration: clipDuration });
                 if (videoFilter) videoFilters.push(videoFilter);
                 if (audioFilter) args.push('-af', audioFilter);
-            } catch (e) {
-                if (onLog) onLog(`Speed filter failed: ${e.message}`);
+            } catch (e) {}
+        }
+
+        // Subtitles
+        if (speechSegments && speechSegments.length > 0) {
+            const subtitleFilter = generateSubtitleFilter(speechSegments, startTime, clipDuration);
+            if (subtitleFilter) {
+                videoFilters.push(subtitleFilter);
+                if (onLog) onLog(`Adding subtitles to clip ${i + 1}`);
             }
         }
 
-        // Apply video filters
         if (videoFilters.length > 0) {
             args.push('-vf', videoFilters.join(','));
         }
 
-        args.push(
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-crf', '28',
-            '-c:a', 'aac',
-            '-b:a', '96k',
-            '-ar', '44100',
-            '-movflags', '+faststart',
-            outputName
-        );
+        args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-c:a', 'aac', '-b:a', '96k', '-ar', '44100', '-movflags', '+faststart', outputName);
 
         try {
-            await execWithTimeout(ff, args, clipDuration * 3000 + 30000); // 3x clip duration + 30s buffer
-        } catch (execErr) {
+            await execWithTimeout(ff, args, clipDuration * 3000 + 30000);
+        } catch (e) {
             stopTimer();
-            if (onLog) onLog(`FFmpeg failed on clip ${i + 1}: ${execErr.message}`);
-            // Don't throw — skip this clip and continue with others
-            if (onLog) onLog(`Skipping clip ${i + 1} and continuing...`);
+            if (onLog) onLog(`FFmpeg failed on clip ${i + 1}: ${e.message}`);
             continue;
         }
 
@@ -339,24 +333,24 @@ export async function processVideoClient(videoFile, options) {
         let data;
         try {
             data = await ff.readFile(outputName);
-        } catch (readErr) {
-            if (onLog) onLog(`Could not read clip ${i + 1}, skipping...`);
+        } catch (e) {
             continue;
         }
 
-        clips.push({ name: outputName, data });
+        clips.push({
+            name: outputName,
+            data,
+            startTime,
+            endTime: startTime + clipDuration,
+            transcript: speechSegments ? speechSegments.filter(seg => seg.start < startTime + clipDuration && seg.end > startTime) : null,
+        });
         await ff.deleteFile(outputName).catch(() => {});
-
-        if (onProgress) {
-            onProgress(Math.round(clipEndProgress));
-        }
     }
 
-    // Cleanup
     await ff.deleteFile(inputName).catch(() => {});
 
     if (clips.length === 0) {
-        throw new Error('Failed to create any clips. The video format may not be supported.');
+        throw new Error('Failed to create any clips');
     }
 
     if (onLog) onLog(`Done! Created ${clips.length} clips`);
@@ -364,7 +358,7 @@ export async function processVideoClient(videoFile, options) {
 }
 
 /**
- * Download a clip from Uint8Array
+ * Download a clip
  */
 export function downloadClip(clipData, filename) {
     const blob = new Blob([clipData], { type: 'video/mp4' });

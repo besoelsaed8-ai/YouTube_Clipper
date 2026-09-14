@@ -21,6 +21,8 @@ import BlogPostPage from './pages/BlogPostPage';
 import AboutPage from './pages/AboutPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
+import ContactPage from './pages/ContactPage';
+import FaqPage from './pages/FaqPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // ══════════════════════════════════════════════
@@ -57,6 +59,8 @@ function App() {
       <Route path="/about" element={<AboutPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/contact" element={<ContactPage />} />
+      <Route path="/faq" element={<FaqPage />} />
 
       {/* ── 404 ── */}
       <Route path="*" element={<NotFoundPage />} />
@@ -98,14 +102,14 @@ function ToolPage() {
     setStep('settings');
   };
 
-  const handleStartProcessing = (duration, crop, outputDir, shortsOnly, quality, aiMode = false, faceTrack = false, effects = {}) => {
-    setPendingSettings({ duration, crop, outputDir, shortsOnly, quality, aiMode, faceTrack, effects });
+  const handleStartProcessing = (duration, crop, outputDir, shortsOnly, quality, aiMode = false, faceTrack = false, effects = {}, subtitles = false, subtitleLang = 'ar-SA') => {
+    setPendingSettings({ duration, crop, outputDir, shortsOnly, quality, aiMode, faceTrack, effects, subtitles, subtitleLang });
     setStep('ad-pre');
   };
 
   const handleAdPreComplete = async () => {
     if (!pendingSettings) return;
-    const { duration, crop, outputDir, shortsOnly, quality, aiMode, faceTrack, effects } = pendingSettings;
+    const { duration, crop, outputDir, shortsOnly, quality, aiMode, faceTrack, effects, subtitles, subtitleLang } = pendingSettings;
 
     setStep('processing');
     abortRef.current = false;
@@ -149,6 +153,8 @@ function ToolPage() {
           crop: shortsOnly ? true : crop,
           faceTrack: faceTrack && crop,
           effects,
+          subtitles,
+          subtitleLang,
           onProgress: (percent) => {
             setJobStatus(prev => ({ ...prev, progress: Math.floor(40 + percent * 0.6) }));
           },
@@ -185,6 +191,24 @@ function ToolPage() {
     setAiClips(null);
     setPendingSettings(null);
     setJobStatus({ status: 'pending', progress: 0 });
+  };
+
+  const handleRetry = () => {
+    abortRef.current = true;
+    setStep('input');
+    setJobStatus({ status: 'pending', progress: 0 });
+    setClips([]);
+    setAiClips(null);
+  };
+
+  const handleUploadFallback = () => {
+    abortRef.current = true;
+    setStep('input');
+    setVideoInfo(null);
+    setVideoUrl('');
+    setJobStatus({ status: 'pending', progress: 0 });
+    setClips([]);
+    setAiClips(null);
   };
 
   const steps = [
@@ -277,6 +301,8 @@ function ToolPage() {
                   status={jobStatus.status}
                   progress={jobStatus.progress}
                   error={jobStatus.error}
+                  onRetry={handleRetry}
+                  onUploadFallback={handleUploadFallback}
                 />
               )}
 
@@ -316,6 +342,10 @@ function ToolPage() {
               <Link to="/youtube-shorts-maker" className="hover:text-indigo-400 transition-colors">Shorts Maker</Link>
               <span>·</span>
               <Link to="/blog" className="hover:text-indigo-400 transition-colors">Blog</Link>
+              <span>·</span>
+              <Link to="/faq" className="hover:text-indigo-400 transition-colors">FAQ</Link>
+              <span>·</span>
+              <Link to="/contact" className="hover:text-indigo-400 transition-colors">Contact</Link>
               <span>·</span>
               <Link to="/about" className="hover:text-indigo-400 transition-colors">About</Link>
             </div>

@@ -1,16 +1,14 @@
-# Robots.txt - YouTube Clipper
-# https://clipper.dockhosting.dev/robots.txt
+# robots.txt — YouTube Clipper
+# https://clipper.dockhosting.dev
 
 User-agent: *
 Allow: /
 
-# Block API and processing endpoints
+# Disallow admin/API/processing pages
 Disallow: /api/
-Disallow: /health
-Disallow: /downloads/
-
-# Block temporary/processing pages
-Disallow: /admin
+Disallow: /admin/
+Disallow: /temp/
+Disallow: /output/
 
 # Sitemap
 Sitemap: https://clipper.dockhosting.dev/sitemap.xml

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// API configuration for Netlify Functions
+// API configuration — same origin (no cross-origin needed in production)
 const getBaseURL = () => {
     return '/api';
 };
@@ -42,12 +42,14 @@ export const processVideo = async (url, duration, crop, outputDir, shortsOnly, q
 };
 
 /**
- * Download video file from server for client-side processing
+ * Download video file from server for client-side processing.
+ * If "best" quality fails, retries once at lower quality automatically.
  */
 export const downloadVideoFile = async (url, quality, onProgress, cookies = null) => {
-    let serverError = '';
-    try {
-        const response = await api.post('/download', { url, quality, cookies }, {
+    let lastError = '';
+
+    const makeRequest = async (q) => {
+        return api.post('/download', { url, quality: q, cookies }, {
             responseType: 'blob',
             onDownloadProgress: (progressEvent) => {
                 if (onProgress && progressEvent.total) {
@@ -57,30 +59,37 @@ export const downloadVideoFile = async (url, quality, onProgress, cookies = null
             },
             timeout: 600000,
         });
+    };
+
+    // First attempt
+    try {
+        const response = await makeRequest(quality);
         return response.data;
     } catch (error) {
-        // Surface the real server reason instead of a generic message
-        serverError = error?.response?.data?.error || error?.message || 'unknown error';
-        // Retry once with a lower quality — large "best" downloads are the most common failure
-        if (quality && quality !== 'worst') {
+        lastError = error?.response?.data?.error || error?.message || 'Connection failed';
+
+        // If we asked for "best" or "1080" and it failed, retry at lower quality
+        if (quality && !['worst', '480'].includes(quality)) {
             try {
                 if (onProgress) onProgress(0);
-                const retry = await api.post('/download', { url, quality: 'worst', cookies }, {
-                    responseType: 'blob',
-                    onDownloadProgress: (progressEvent) => {
-                        if (onProgress && progressEvent.total) {
-                            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                            onProgress(percent);
-                        }
-                    },
-                    timeout: 600000,
-                });
+                const retry = await makeRequest('480');
                 return retry.data;
             } catch (retryError) {
-                serverError = retryError?.response?.data?.error || retryError?.message || serverError;
+                lastError = retryError?.response?.data?.error || retryError?.message || lastError;
             }
         }
-        throw new Error(`YouTube download failed: ${serverError}. Tip: upload the video file directly instead — it always works.`);
+
+        // Build a helpful error message
+        let helpfulMessage = `Could not download this video: ${lastError}`;
+        if (lastError.includes('timed out') || lastError.includes('timeout')) {
+            helpfulMessage += '\n\nThe server took too long. The video might be too long or YouTube is slow right now.';
+        } else if (lastError.includes('blocked') || lastError.includes('403')) {
+            helpfulMessage += '\n\nYouTube is blocking this download. Try uploading the video file instead.';
+        } else if (lastError.includes('not found') || lastError.includes('404')) {
+            helpfulMessage += '\n\nThis video might be private or deleted.';
+        }
+
+        throw new Error(helpfulMessage);
     }
 };
 
