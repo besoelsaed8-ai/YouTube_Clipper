@@ -81,8 +81,11 @@ app.use('/downloads', express.static(path.join(__dirname, 'output')));
 // ═══════════════════════════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════════════════════════
+const clipDirectRoutes = require('./src/routes/clipDirect');
+
 app.use('/api', videoRoutes);
 app.use('/api/transcribe', transcribeRoutes);
+app.use('/api/clip-direct', strictLimiter, clipDirectRoutes);
 
 // ═══════════════════════════════════════════════════════════════
 // QUEUE API (for submitting jobs)
