@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
 const http = require('http');
+const rateLimit = require('express-rate-limit');
 const videoRoutes = require('./src/routes/video');
 const transcribeRoutes = require('./src/routes/transcribe');
 const { cleanupTempFiles } = require('./src/utils/cleanup');
@@ -47,6 +48,33 @@ if (FFMPEG_PATH && FFPROBE_PATH) {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Rate limiting — protect API from abuse
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 60, // 60 requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please wait a minute.' },
+    keyGenerator: (req) => {
+        // Use IP, but allow override for proxied requests
+        return req.ip || req.connection.remoteAddress;
+    },
+});
+
+const strictLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10, // Only 10 heavy requests (download/transcribe) per minute
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many heavy requests. Please slow down.' },
+});
+
+// Apply to API routes
+app.use('/api/info', apiLimiter);
+app.use('/api/download', strictLimiter);
+app.use('/api/transcribe', strictLimiter);
+app.use('/api/process', strictLimiter);
+
 // Static files for generated clips
 app.use('/downloads', express.static(path.join(__dirname, 'output')));
 
@@ -75,6 +103,17 @@ app.post('/api/job', async (req, res) => {
         console.error('[API] Job creation failed:', error.message);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Bypass rate limit for health check
+app.get('/health', (req, res) => {
+    const { getClientCount } = require('./src/services/socket');
+    res.json({
+        status: 'ok',
+        uptime: process.uptime(),
+        connectedClients: getClientCount(),
+        timestamp: new Date().toISOString(),
+    });
 });
 
 app.get('/api/job/:id', async (req, res) => {
